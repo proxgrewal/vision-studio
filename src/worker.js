@@ -1,6 +1,6 @@
 // Inference worker: owns ONNX Runtime and every model session so the UI thread never blocks.
 import { clearModelCache, detectBackend } from './runtime.js';
-import { YoloTask } from './tasks/yolo.js';
+import { YOLO_KINDS, YoloTask, customYoloTask } from './tasks/yolo.js';
 import { DepthTask } from './tasks/depth.js';
 import { SemanticTask } from './tasks/semantic.js';
 
@@ -9,12 +9,16 @@ const loading = {}; // task id → in-flight load promise, so concurrent request
 
 function getTask(id) {
   if (!tasks[id]) {
-    if (['detect', 'segment', 'obb', 'classify'].includes(id)) tasks[id] = new YoloTask(id);
+    if (YOLO_KINDS[id]) tasks[id] = new YoloTask(YOLO_KINDS[id]);
     else if (id === 'depth') tasks[id] = new DepthTask();
     else if (id === 'semantic') tasks[id] = new SemanticTask();
     else throw new Error('Unknown task ' + id);
   }
   return tasks[id];
+}
+
+function describe(impl) {
+  return { backend: impl.backend, variant: impl.variant, labels: impl.labels || null, kind: impl.kind || null, size: impl.cfg?.size || null };
 }
 
 self.onmessage = async (e) => {
@@ -33,7 +37,14 @@ self.onmessage = async (e) => {
           .finally(() => delete loading[key]);
       }
       await loading[key];
-      reply({ type: 'loaded', backend: impl.backend, variant: impl.variant, labels: impl.labels || null });
+      reply({ type: 'loaded', ...describe(impl) });
+    } else if (type === 'loadCustom') {
+      // A user-supplied Ultralytics ONNX export; replaces any previous custom model.
+      const { buffer, label, backend } = e.data;
+      const impl = customYoloTask(buffer, label);
+      tasks.custom = impl;
+      await impl.load(backend, 'custom', (p) => self.postMessage({ id, type: 'progress', ...p }));
+      reply({ type: 'loaded', ...describe(impl), label, meta: impl.cfg.meta });
     } else if (type === 'run') {
       const { task, bitmap, opts } = e.data;
       const impl = tasks[task];
@@ -42,6 +53,9 @@ self.onmessage = async (e) => {
       bitmap.close();
       const { transfer = [], ...rest } = result;
       reply({ type: 'result', result: rest }, transfer);
+    } else if (type === 'resetTracker') {
+      for (const t of Object.values(tasks)) t.resetTracker?.();
+      reply({ type: 'ok' });
     } else if (type === 'clearCache') {
       await clearModelCache();
       reply({ type: 'cleared' });

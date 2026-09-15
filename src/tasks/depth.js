@@ -72,15 +72,18 @@ export class DepthTask {
     const range = max - min || 1;
     const norm = new Uint8Array(d.length);
     for (let i = 0; i < d.length; i++) norm[i] = ((d[i] - min) / range) * 255;
+    const raw = new Float32Array(d); // own copy so it can be transferred (used by 16-bit export & 3D view)
     const t3 = performance.now();
     return {
+      kind: 'depth',
       depth: norm,
+      raw,
       width: ow,
       height: oh,
       min,
       max,
       timing: { pre: t1 - t0, infer: t2 - t1, post: t3 - t2, total: t3 - t0 },
-      transfer: [norm.buffer],
+      transfer: [norm.buffer, raw.buffer],
     };
   }
 }

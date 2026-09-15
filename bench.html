@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vision Studio – Benchmark</title>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .bench { max-width: 980px; margin: 0 auto; padding: 24px 22px; width: 100%; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 16px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; }
+    td.num { font-family: var(--mono); text-align: right; }
+    th.num { text-align: right; }
+    .bar { height: 6px; background: var(--accent); border-radius: 3px; min-width: 2px; }
+    .env { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 8px; font-family: var(--mono); }
+    .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .actions .btn { flex: none; }
+    textarea { width: 100%; min-height: 120px; margin-top: 12px; background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>Benchmark</h1>
+        <p>Every model, on this device, in this browser.</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="backend-badge" class="badge">detecting…</span>
+      <a class="gh" href="./">← Studio</a>
+    </div>
+  </header>
+  <main class="bench">
+    <p class="hint">Runs each model 10× on the bus sample after a warm-up and reports the median inference time (model only, excluding pre/post-processing). Models download on first use and are cached afterwards.</p>
+    <div class="env" id="env"></div>
+    <div class="actions">
+      <button id="run-webgpu" class="btn primary">Run on WebGPU</button>
+      <button id="run-wasm" class="btn">Run on WASM (CPU)</button>
+      <button id="copy" class="btn ghost" disabled>Copy results as Markdown</button>
+    </div>
+    <p id="status" class="hint" style="margin-top:10px"></p>
+    <table id="table" hidden>
+      <thead><tr><th>Model</th><th>Backend</th><th class="num">Median ms</th><th class="num">Min ms</th><th class="num">FPS</th><th style="width:30%"></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <textarea id="md" hidden readonly></textarea>
+  </main>
+  <script type="module">
+    import { Engine } from './src/engine.js';
+    const $ = (id) => document.getElementById(id);
+    const MODELS = [
+      ['detect', 'n', 'YOLO11n detect'], ['detect', 's', 'YOLO11s detect'], ['detect', 'm', 'YOLO11m detect'],
+      ['segment', 'n', 'YOLO11n-seg'], ['segment', 's', 'YOLO11s-seg'],
+      ['pose', 'n', 'YOLO11n-pose'], ['obb', 'n', 'YOLO11n-obb (1024)'], ['classify', 'n', 'YOLO11n-cls'],
+      ['semantic', 'auto', 'SegFormer-B0'], ['depth', 'auto', 'Depth Anything V2 S'],
+    ];
+    const engine = new Engine();
+    const detected = await engine.init();
+    $('backend-badge').textContent = detected.toUpperCase();
+    $('backend-badge').className = 'badge ' + detected;
+    let gpu = '';
+    try {
+      const a = await navigator.gpu?.requestAdapter();
+      const info = a?.info || (await a?.requestAdapterInfo?.());
+      gpu = info ? [info.vendor, info.architecture, info.device, info.description].filter(Boolean).join(' ') : '';
+    } catch {}
+    const env = { ua: navigator.userAgent.replace(/\(.*?\)/, '').split(' ').filter((s) => /Chrome|Firefox|Safari|Edg/.test(s)).join(' '), cores: navigator.hardwareConcurrency, gpu, isolated: crossOriginIsolated };
+    $('env').innerHTML = ['browser: ' + env.ua, 'cores: ' + env.cores, gpu ? 'gpu: ' + gpu : 'gpu: n/a', 'threads: ' + (env.isolated ? 'yes' : 'no')].map((s) => '<span>' + s + '</span>').join('');
+    if (!navigator.gpu) $('run-webgpu').disabled = true;
+
+    const img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = 'samples/bus.jpg'; });
+    const results = [];
+
+    async function bench(backend) {
+      $('run-webgpu').disabled = $('run-wasm').disabled = true;
+      $('table').hidden = false;
+      for (const [task, variant, name] of MODELS) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + name + '</td><td>' + backend + '</td><td class="num">…</td><td class="num"></td><td class="num"></td><td></td>';
+        $('rows').append(tr);
+        try {
+          $('status').textContent = 'Loading ' + name + '…';
+          await engine.load(task, backend, variant, ({ loaded, total }) => total && ($('status').textContent = 'Downloading ' + name + ' ' + Math.round((loaded / total) * 100) + '%'));
+          $('status').textContent = 'Running ' + name + '…';
+          const times = [];
+          for (let i = 0; i < 12; i++) {
+            const r = await engine.run(task, img, { conf: 0.25, iou: 0.45 });
+            if (i >= 2) times.push(r.timing.infer);
+          }
+          times.sort((a, b) => a - b);
+          const med = times[times.length >> 1];
+          const min = times[0];
+          results.push({ name, backend, med, min });
+          tr.children[2].textContent = med.toFixed(1);
+          tr.children[3].textContent = min.toFixed(1);
+          tr.children[4].textContent = (1000 / med).toFixed(1);
+          tr.children[5].innerHTML = '<div class="bar" style="width:' + Math.min(100, (med / 400) * 100) + '%"></div>';
+        } catch (err) {
+          tr.children[2].textContent = 'error';
+          tr.children[5].textContent = err.message;
+        }
+      }
+      $('status').textContent = 'Done.';
+      $('run-webgpu').disabled = !navigator.gpu;
+      $('run-wasm').disabled = false;
+      $('copy').disabled = false;
+      const md = ['| Model | Backend | Median ms | Min ms | FPS |', '|---|---|---:|---:|---:|', ...results.map((r) => '| ' + r.name + ' | ' + r.backend + ' | ' + r.med.toFixed(1) + ' | ' + r.min.toFixed(1) + ' | ' + (1000 / r.med).toFixed(1) + ' |'), '', '_' + Object.entries(env).map(([k, v]) => k + ': ' + v).join(' · ') + '_'].join('\n');
+      $('md').value = md;
+      $('md').hidden = false;
+    }
+    $('run-webgpu').addEventListener('click', () => bench('webgpu'));
+    $('run-wasm').addEventListener('click', () => bench('wasm'));
+    $('copy').addEventListener('click', () => navigator.clipboard.writeText($('md').value).then(() => ($('status').textContent = 'Copied — paste it into a GitHub issue to share your numbers.')));
+  </script>
+</body>
+</html>

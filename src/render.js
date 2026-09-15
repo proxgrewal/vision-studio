@@ -62,10 +62,60 @@ export function drawYolo(ctx, result, W, H, { showLabels = true, maskOpacity = 0
   const { lw, fontPx } = setupStroke(ctx, W, H);
   for (const d of detections) {
     const color = classColor(d.cls);
+    drawTrail(ctx, d, color, lw);
     ctx.strokeStyle = rgbCss(color);
     ctx.strokeRect(d.x, d.y, d.w, d.h);
-    if (showLabels) drawTag(ctx, d.label + ' ' + (d.score * 100).toFixed(0) + '%', d.x - lw / 2, d.y, color, fontPx);
+    if (result.kptShape && d.kpts) drawSkeleton(ctx, d.kpts, result.kptShape[0], lw, fontPx);
+    if (showLabels) drawTag(ctx, tagText(d), d.x - lw / 2, d.y, color, fontPx);
   }
+}
+
+function tagText(d) {
+  return (d.id ? '#' + d.id + ' ' : '') + d.label + ' ' + (d.score * 100).toFixed(0) + '%';
+}
+
+function drawTrail(ctx, d, color, lw) {
+  if (!d.trail || d.trail.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = rgbCss(color, 0.8);
+  ctx.lineWidth = lw * 1.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(d.trail[0][0], d.trail[0][1]);
+  for (let i = 1; i < d.trail.length; i++) ctx.lineTo(d.trail[i][0], d.trail[i][1]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- pose ---------- */
+// COCO 17-keypoint skeleton (0-based pairs) and Ultralytics-style limb colours.
+const SKELETON = [[15, 13], [13, 11], [16, 14], [14, 12], [11, 12], [5, 11], [6, 12], [5, 6], [5, 7], [6, 8], [7, 9], [8, 10], [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6]];
+const LIMB_COLORS = ['#ff9d33', '#ff9d33', '#ff9d33', '#ff9d33', '#ff66ff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#66ff66', '#66ff66', '#66ff66', '#66ff66', '#66ff66', '#66ff66', '#66ff66'];
+const KPT_COLORS = ['#66ff66', '#66ff66', '#66ff66', '#66ff66', '#66ff66', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#33ccff', '#ff9d33', '#ff9d33', '#ff9d33', '#ff9d33', '#ff9d33', '#ff9d33'];
+
+function drawSkeleton(ctx, kpts, n, lw, fontPx, thr = 0.5) {
+  ctx.save();
+  ctx.lineWidth = lw * 1.4;
+  ctx.lineCap = 'round';
+  if (n === 17) {
+    SKELETON.forEach(([a, b], i) => {
+      if (kpts[a * 3 + 2] < thr || kpts[b * 3 + 2] < thr) return;
+      ctx.strokeStyle = LIMB_COLORS[i];
+      ctx.beginPath();
+      ctx.moveTo(kpts[a * 3], kpts[a * 3 + 1]);
+      ctx.lineTo(kpts[b * 3], kpts[b * 3 + 1]);
+      ctx.stroke();
+    });
+  }
+  const r = Math.max(2, fontPx * 0.22);
+  for (let k = 0; k < n; k++) {
+    if (kpts[k * 3 + 2] < thr) continue;
+    ctx.fillStyle = n === 17 ? KPT_COLORS[k] : '#64e0c8';
+    ctx.beginPath();
+    ctx.arc(kpts[k * 3], kpts[k * 3 + 1], r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function setupStroke(ctx, W, H) {
@@ -116,9 +166,10 @@ export function drawObb(ctx, result, W, H, { showLabels = true, maskOpacity = 0.
     ctx.fill();
     ctx.strokeStyle = rgbCss(color);
     ctx.stroke();
+    drawTrail(ctx, d, color, lw);
     if (showLabels && result.detections.length <= 60) {
       const top = pts.reduce((a, p) => (p[1] < a[1] ? p : a));
-      drawTag(ctx, d.label + ' ' + (d.score * 100).toFixed(0) + '%', top[0] - lw / 2, top[1], color, fontPx);
+      drawTag(ctx, tagText(d), top[0] - lw / 2, top[1], color, fontPx);
     }
   }
 }
@@ -149,7 +200,7 @@ export function summaryYolo(result) {
   for (const d of result.detections) counts.set(d.cls, (counts.get(d.cls) || 0) + 1);
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([cls, n]) => ({ label: result.detections.find((d) => d.cls === cls).label, color: classColor(cls), value: '×' + n }));
+    .map(([cls, n]) => ({ label: result.detections.find((d) => d.cls === cls).name, color: classColor(cls), value: '×' + n }));
 }
 
 /* ---------- semantic ---------- */
@@ -218,9 +269,11 @@ export function summaryDepth(result) {
   ];
 }
 
+/** Keyed by result.kind (custom models report the kind of head they were exported with). */
 export const RENDERERS = {
   detect: { draw: drawYolo, summary: summaryYolo },
   segment: { draw: drawYolo, summary: summaryYolo },
+  pose: { draw: drawYolo, summary: summaryYolo },
   obb: { draw: drawObb, summary: summaryYolo },
   classify: { draw: drawClassify, summary: summaryClassify },
   semantic: { draw: drawSemantic, summary: summarySemantic },

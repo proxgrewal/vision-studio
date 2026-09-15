@@ -4,9 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Vision Studio – YOLO11, Depth Anything & SegFormer in your browser</title>
-  <meta name="description" content="Run YOLO11 object detection, instance segmentation, oriented boxes and image classification, SegFormer semantic segmentation and Depth Anything V2 entirely in your browser with WebGPU. No uploads, no server." />
-  <meta name="color-scheme" content="dark" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2312121a'/%3E%3Crect x='18' y='26' width='64' height='48' rx='6' fill='none' stroke='%2364e0c8' stroke-width='7'/%3E%3Ccircle cx='50' cy='50' r='11' fill='%23ff6a5c'/%3E%3C/svg%3E" />
+  <meta name="description" content="Run YOLO11 detection, segmentation, pose, oriented boxes and classification, SegFormer semantic segmentation and Depth Anything V2 entirely in your browser with WebGPU. Webcam, video files, tracking, exports. No uploads, no server." />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0d0e14" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://huggingface.co" crossorigin />
   <link rel="stylesheet" href="style.css" />
@@ -17,11 +20,13 @@
       <span class="logo" aria-hidden="true"></span>
       <div>
         <h1>Vision Studio</h1>
-        <p>YOLO11 detect · segment · OBB · classify, SegFormer, Depth Anything V2 — 100% in your browser, nothing is uploaded.</p>
+        <p>YOLO11 · SegFormer · Depth Anything V2 — 100% in your browser, nothing is uploaded.</p>
       </div>
     </div>
     <div class="topbar-right">
       <span id="backend-badge" class="badge" title="Execution provider">detecting…</span>
+      <button id="btn-theme" class="icon-btn" title="Toggle light / dark theme" aria-label="Toggle theme">◐</button>
+      <a class="gh" href="bench.html" title="Benchmark every model on this device">Benchmark</a>
       <a class="gh" href="https://github.com/proxgrewal/vision-studio" target="_blank" rel="noopener">Source</a>
     </div>
   </header>
@@ -33,41 +38,62 @@
         <div class="seg" role="tablist" id="task-tabs">
           <button data-task="detect" class="active" role="tab" aria-selected="true">Detect</button>
           <button data-task="segment" role="tab">Segment</button>
+          <button data-task="pose" role="tab">Pose</button>
           <button data-task="obb" role="tab">OBB</button>
           <button data-task="classify" role="tab">Classify</button>
           <button data-task="semantic" role="tab">Semantic</button>
           <button data-task="depth" role="tab">Depth</button>
+          <button data-task="custom" role="tab" hidden>Custom</button>
         </div>
         <p id="task-desc" class="hint">YOLO11 object detection — 80 COCO classes with bounding boxes.</p>
       </section>
 
       <section>
         <h2>Input</h2>
-        <div class="row">
-          <button id="btn-upload" class="btn primary">Upload image</button>
-          <button id="btn-webcam" class="btn">Start webcam</button>
+        <div class="grid2">
+          <button id="btn-upload" class="btn primary">Image / video</button>
+          <button id="btn-webcam" class="btn">Webcam</button>
+          <button id="btn-screen" class="btn">Screen</button>
+          <button id="btn-batch" class="btn">Batch…</button>
         </div>
-        <input id="file-input" type="file" accept="image/*" hidden />
-        <p class="hint">…or drag &amp; drop / paste an image anywhere.</p>
+        <input id="file-input" type="file" accept="image/*,video/*" hidden />
+        <input id="batch-input" type="file" accept="image/*" multiple hidden />
+        <label class="select" id="camera-row" hidden>
+          <span>Camera</span>
+          <select id="camera-select"></select>
+        </label>
+        <p class="hint">…or drag &amp; drop / paste anywhere. Videos play through the model frame by frame.</p>
         <div class="samples" id="samples"></div>
+        <div id="video-controls" class="video-controls" hidden>
+          <button id="btn-play" class="btn small">Pause</button>
+          <input id="scrub" type="range" min="0" max="1000" value="0" />
+          <span id="video-time" class="mono">0:00</span>
+          <label class="check small"><input id="video-loop" type="checkbox" checked /> Loop</label>
+          <button id="btn-record" class="btn small">● Record</button>
+        </div>
       </section>
 
       <section id="settings-yolo">
         <h2>Model</h2>
         <div class="seg small" id="model-size">
-          <button data-size="n" class="active">Nano · fast</button>
-          <button data-size="s">Small · accurate</button>
+          <button data-size="n" class="active">Nano</button>
+          <button data-size="s">Small</button>
+          <button data-size="m">Medium</button>
         </div>
-        <div id="settings-nms">
-        <label class="slider">
-          <span>Confidence <output id="conf-out">0.25</output></span>
-          <input id="conf" type="range" min="0.05" max="0.95" step="0.05" value="0.25" />
-        </label>
-        <label class="slider">
-          <span>IoU (NMS) <output id="iou-out">0.45</output></span>
-          <input id="iou" type="range" min="0.1" max="0.9" step="0.05" value="0.45" />
-        </label>
-        <label class="check"><input id="show-labels" type="checkbox" checked /> Show labels</label>
+        <div id="settings-nms" class="stack">
+          <label class="slider">
+            <span>Confidence <output id="conf-out">0.25</output></span>
+            <input id="conf" type="range" min="0.05" max="0.95" step="0.05" value="0.25" />
+          </label>
+          <label class="slider">
+            <span>IoU (NMS) <output id="iou-out">0.45</output></span>
+            <input id="iou" type="range" min="0.1" max="0.9" step="0.05" value="0.45" />
+          </label>
+          <label class="check"><input id="show-labels" type="checkbox" checked /> Show labels</label>
+          <label class="check"><input id="track" type="checkbox" /> Track objects (IDs + trails, video/webcam)</label>
+          <label class="check" id="row-count"><input id="count-line" type="checkbox" /> Count line crossings <span class="hint">(draw a line on the video)</span></label>
+          <label class="check" id="row-distance"><input id="distance" type="checkbox" /> Estimate distance per box (runs Depth Anything too)</label>
+          <label class="check" id="row-finegrained"><input id="finegrained" type="checkbox" /> Fine-grained labels per box (runs classifier too)</label>
         </div>
       </section>
 
@@ -95,7 +121,39 @@
           <input id="depth-blend" type="range" min="0" max="1" step="0.05" value="1" />
         </label>
         <label class="check"><input id="depth-invert" type="checkbox" /> Invert (far = bright)</label>
+        <button id="btn-3d" class="btn">View as 3D point cloud</button>
       </section>
+
+      <details class="advanced">
+        <summary>Custom model</summary>
+        <p class="hint">Any Ultralytics ONNX export (detect / segment / pose / obb / classify). Class names and input size are read from the file.</p>
+        <div class="grid2">
+          <button id="btn-custom-file" class="btn">Load .onnx file</button>
+          <button id="btn-custom-url" class="btn">From URL…</button>
+        </div>
+        <input id="custom-input" type="file" accept=".onnx" hidden />
+        <label class="select">
+          <span>Model zoo</span>
+          <select id="zoo-select">
+            <option value="">Choose a community model…</option>
+          </select>
+        </label>
+        <p id="custom-info" class="hint"></p>
+      </details>
+
+      <details class="advanced">
+        <summary>Export</summary>
+        <div class="grid2" id="export-buttons">
+          <button class="btn" data-export="png">Image (PNG)</button>
+          <button class="btn" data-export="json">Results (JSON)</button>
+          <button class="btn" data-export="coco">COCO JSON</button>
+          <button class="btn" data-export="yolo">YOLO labels (txt)</button>
+          <button class="btn" data-export="masks">Instance masks (ZIP)</button>
+          <button class="btn" data-export="depth16">Depth (16-bit PNG)</button>
+          <button class="btn" data-export="labelmap">Class-id map (PNG)</button>
+          <button class="btn" data-export="link">Copy share link</button>
+        </div>
+      </details>
 
       <details class="advanced">
         <summary>Advanced</summary>
@@ -116,6 +174,14 @@
             <option value="int8">int8 (smallest)</option>
           </select>
         </label>
+        <label class="select">
+          <span>Camera resolution</span>
+          <select id="cam-res">
+            <option value="1280x720">1280 × 720</option>
+            <option value="640x480">640 × 480</option>
+            <option value="1920x1080">1920 × 1080</option>
+          </select>
+        </label>
         <button id="btn-clear-cache" class="btn ghost">Clear cached models</button>
       </details>
 
@@ -131,14 +197,16 @@
         <video id="video" playsinline muted hidden></video>
         <div class="dropzone" id="dropzone">
           <div>
-            <strong>Drop an image here</strong>
+            <strong>Drop an image or video here</strong>
             <span>or pick a sample on the left</span>
           </div>
         </div>
         <div class="stage-tools">
           <button id="btn-compare" class="tool" title="Hold to see the original">Original</button>
+          <button id="btn-grid" class="tool" title="Run every model on this image">All tasks</button>
           <button id="btn-download" class="tool" title="Download result">Download</button>
         </div>
+        <div id="counter" class="counter" hidden></div>
       </div>
       <div class="stats" id="stats">
         <span><b id="stat-infer">–</b> ms inference</span>
@@ -150,23 +218,25 @@
         <h2 id="results-title">Results</h2>
         <ul id="results-list" class="legend"></ul>
       </div>
+      <div id="grid-view" class="grid-view" hidden></div>
     </section>
   </main>
 
   <footer class="foot">
     Models: <a href="https://github.com/ultralytics/ultralytics" target="_blank" rel="noopener">YOLO11</a> (AGPL-3.0, exported to ONNX),
-    <a href="https://huggingface.co/onnx-community/depth-anything-v2-small" target="_blank" rel="noopener">Depth Anything V2 Small</a>,
+    <a href="https://huggingface.co/onnx-community/depth-anything-v2-small" target="_blank" rel="noopener">Depth Anything V2</a>,
     <a href="https://huggingface.co/Xenova/segformer-b0-finetuned-ade-512-512" target="_blank" rel="noopener">SegFormer-B0 ADE20K</a> ·
     Runtime: <a href="https://onnxruntime.ai/docs/tutorials/web/" target="_blank" rel="noopener">ONNX Runtime Web</a>. Models are cached in your browser after the first load.
+    · Library: <code>window.vision</code> (see README).
   </footer>
 
   <script>
-    // Register the cross-origin-isolation service worker (multi-threaded WASM). One reload, once.
+    // Register the cross-origin-isolation service worker (multi-threaded WASM + offline shell). One reload, once.
     (async () => {
-      if (window.crossOriginIsolated || !('serviceWorker' in navigator) || location.protocol === 'file:') return;
-      if (sessionStorage.getItem('coi-reloaded')) return;
+      if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
       try {
-        const reg = await navigator.serviceWorker.register('coi-sw.js', { scope: './' });
+        await navigator.serviceWorker.register('coi-sw.js', { scope: './' });
+        if (window.crossOriginIsolated || sessionStorage.getItem('coi-reloaded')) return;
         await navigator.serviceWorker.ready;
         if (!navigator.serviceWorker.controller) {
           await new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
@@ -174,9 +244,12 @@
         sessionStorage.setItem('coi-reloaded', '1');
         location.reload();
       } catch (err) {
-        console.warn('COI service worker unavailable:', err);
+        console.warn('Service worker unavailable:', err);
       }
     })();
+  </script>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
   </script>
   <script type="module" src="app.js"></script>
 </body>

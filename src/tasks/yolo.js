@@ -1,45 +1,51 @@
 import { centerCrop, letterbox } from '../image.js';
 import { COCO_CLASSES, DOTA_CLASSES } from '../labels.js';
 import { createSession, fetchModel, loadOrt } from '../runtime.js';
+import { readOnnxMeta } from '../onnxmeta.js';
 
-/** Per-head configuration for the Ultralytics YOLO11 ONNX exports in /models. */
-const KINDS = {
-  detect: { files: { n: 'yolo11n.onnx', s: 'yolo11s.onnx' }, size: 640, names: COCO_CLASSES },
-  segment: { files: { n: 'yolo11n-seg.onnx', s: 'yolo11s-seg.onnx' }, size: 640, names: COCO_CLASSES },
-  obb: { files: { n: 'yolo11n-obb.onnx', s: 'yolo11s-obb.onnx' }, size: 1024, names: DOTA_CLASSES },
-  classify: { files: { n: 'yolo11n-cls.onnx', s: 'yolo11s-cls.onnx' }, size: 224, names: null, namesFile: 'imagenet-names.json' },
+/** Built-in Ultralytics YOLO11 ONNX exports in /models. */
+export const YOLO_KINDS = {
+  detect: { kind: 'detect', size: 640, names: COCO_CLASSES, files: { n: 'yolo11n.onnx', s: 'yolo11s.onnx', m: 'yolo11m.onnx' } },
+  segment: { kind: 'segment', size: 640, names: COCO_CLASSES, files: { n: 'yolo11n-seg.onnx', s: 'yolo11s-seg.onnx', m: 'yolo11m-seg.onnx' } },
+  pose: { kind: 'pose', size: 640, names: ['person'], kptShape: [17, 3], files: { n: 'yolo11n-pose.onnx', s: 'yolo11s-pose.onnx' } },
+  obb: { kind: 'obb', size: 1024, names: DOTA_CLASSES, files: { n: 'yolo11n-obb.onnx', s: 'yolo11s-obb.onnx' } },
+  classify: { kind: 'classify', size: 224, names: null, namesFile: 'imagenet-names.json', files: { n: 'yolo11n-cls.onnx', s: 'yolo11s-cls.onnx' } },
 };
 
 /** Model files live in /models next to /src; resolve against this module's own URL so no base needs passing in. */
 const modelUrl = (file) => new URL('../../models/' + file, import.meta.url).href;
 
 /**
- * YOLO11 on ONNX Runtime Web.
- *  detect   : output0 [1, 4+80, 8400]
- *  segment  : output0 [1, 4+80+32, 8400] + output1 [1, 32, 160, 160] mask protos
- *  obb      : output0 [1, 4+15+1, 21504]  (last channel = rotation angle in radians)
- *  classify : output0 [1, 1000] softmax probabilities
+ * YOLO11 on ONNX Runtime Web (any Ultralytics export: detect / segment / pose / obb / classify).
+ *  detect   : output0 [1, 4+nc, A]
+ *  segment  : output0 [1, 4+nc+32, A] + output1 [1, 32, H/4, W/4] mask protos
+ *  pose     : output0 [1, 4+nc+K*3, A]  (keypoints x, y, visibility)
+ *  obb      : output0 [1, 4+nc+1, A]     (last channel = rotation angle in radians)
+ *  classify : output0 [1, nc] softmax probabilities
  */
 export class YoloTask {
-  constructor(kind) {
-    this.kind = kind;
-    this.cfg = KINDS[kind];
+  /** @param cfg one of YOLO_KINDS, or a custom config { kind, size, names, kptShape?, buffer, label } */
+  constructor(cfg) {
+    this.cfg = { ...cfg };
+    this.kind = cfg.kind;
     this.session = null;
     this.backend = null;
     this.requested = null;
     this.variant = null;
-    this.labels = this.cfg.names;
+    this.labels = cfg.names;
+    this.tracker = null;
   }
 
   pickVariant(backend, variant) {
-    return variant === 's' ? 's' : 'n';
+    if (this.cfg.buffer) return 'custom';
+    return this.cfg.files[variant] ? variant : 'n';
   }
 
   async load(backend, variant, onProgress) {
     const v = this.pickVariant(backend, variant);
-    if (!this.labels) this.labels = await fetch(modelUrl(this.cfg.namesFile)).then((r) => r.json());
+    if (!this.labels && this.cfg.namesFile) this.labels = await fetch(modelUrl(this.cfg.namesFile)).then((r) => r.json());
     if (this.session && this.variant === v && this.requested === backend) return;
-    const buffer = await fetchModel(modelUrl(this.cfg.files[v]), onProgress);
+    const buffer = this.cfg.buffer || (await fetchModel(modelUrl(this.cfg.files[v]), onProgress));
     const { session, backend: used } = await createSession(buffer, backend);
     this.session = session;
     this.backend = used;
@@ -72,17 +78,21 @@ export class YoloTask {
     const idx = Array.from(probs.keys()).sort((a, b) => probs[b] - probs[a]).slice(0, topK);
     const t3 = performance.now();
     return {
-      classes: idx.map((i) => ({ cls: i, label: (this.labels[i] || 'class ' + i).replace(/_/g, ' '), score: probs[i] })),
+      kind: 'classify',
+      classes: idx.map((i) => ({ cls: i, label: (this.labels?.[i] || 'class ' + i).replace(/_/g, ' '), score: probs[i] })),
       timing: { pre: t1 - t0, infer: t2 - t1, post: t3 - t2, total: t3 - t0 },
     };
   }
 
-  async runDetect(source, srcW, srcH, { conf = 0.25, iou = 0.45, maxDet = 300 } = {}) {
+  async runDetect(source, srcW, srcH, { conf = 0.25, iou = 0.45, maxDet = 300, track = false } = {}) {
     const ort = await loadOrt();
     const size = this.cfg.size;
     const names = this.labels;
     const nc = names.length;
     const isObb = this.kind === 'obb';
+    const isPose = this.kind === 'pose';
+    const kptN = isPose ? this.cfg.kptShape[0] : 0;
+    const kptDim = isPose ? this.cfg.kptShape[1] : 0;
     const t0 = performance.now();
     const lb = letterbox(source, size, srcW, srcH);
     const input = new ort.Tensor('float32', lb.tensor, [1, 3, size, size]);
@@ -93,7 +103,7 @@ export class YoloTask {
     const out0 = outputs[this.session.outputNames[0]];
     const [, channels, anchors] = out0.dims;
     const data = out0.data;
-    const maskDim = isObb ? 0 : channels - 4 - nc;
+    const maskDim = this.kind === 'segment' ? channels - 4 - nc : 0;
 
     // Decode candidates above the confidence threshold.
     const cands = [];
@@ -118,9 +128,9 @@ export class YoloTask {
 
     const kept = nms(cands, iou, maxDet, isObb);
 
-    // Map boxes from letterbox space back to source pixels.
+    // Map boxes (and keypoints) from letterbox space back to source pixels.
     const detections = kept.map((d) => {
-      const base = { score: d.score, cls: d.cls, label: names[d.cls] };
+      const base = { score: d.score, cls: d.cls, name: names[d.cls], label: names[d.cls] };
       if (isObb) {
         return { ...base, cx: (d.cx - lb.dw) / lb.ratio, cy: (d.cy - lb.dh) / lb.ratio, w: d.w / lb.ratio, h: d.h / lb.ratio, angle: d.angle };
       }
@@ -128,25 +138,78 @@ export class YoloTask {
       const y = clamp((d.y1 - lb.dh) / lb.ratio, 0, srcH);
       const x2 = clamp((d.x2 - lb.dw) / lb.ratio, 0, srcW);
       const y2 = clamp((d.y2 - lb.dh) / lb.ratio, 0, srcH);
-      return { ...base, x, y, w: x2 - x, h: y2 - y };
+      const det = { ...base, x, y, w: x2 - x, h: y2 - y };
+      if (isPose) {
+        const kpts = new Float32Array(kptN * 3);
+        for (let k = 0; k < kptN; k++) {
+          const off = (4 + nc + k * kptDim) * anchors + d.anchor;
+          kpts[k * 3] = (data[off] - lb.dw) / lb.ratio;
+          kpts[k * 3 + 1] = (data[off + anchors] - lb.dh) / lb.ratio;
+          kpts[k * 3 + 2] = kptDim > 2 ? data[off + 2 * anchors] : 1;
+        }
+        det.kpts = kpts;
+      }
+      return det;
     });
 
+    if (track) {
+      if (!this.tracker) this.tracker = new Tracker();
+      this.tracker.update(detections, isObb);
+    } else {
+      this.tracker = null;
+    }
+
     let masks = null;
-    if (this.kind === 'segment' && maskDim > 0 && detections.length) {
+    if (maskDim > 0 && detections.length) {
       const protos = outputs[this.session.outputNames[1]];
       masks = buildMasks(kept, data, anchors, nc, maskDim, protos, size);
     }
     const t3 = performance.now();
 
     return {
+      kind: this.kind,
       detections,
       masks,
       inputSize: size,
+      kptShape: this.cfg.kptShape || null,
       letterbox: { ratio: lb.ratio, dw: lb.dw, dh: lb.dh, newW: lb.newW, newH: lb.newH },
       timing: { pre: t1 - t0, infer: t2 - t1, post: t3 - t2, total: t3 - t0 },
       transfer: masks ? [masks.data.buffer] : [],
     };
   }
+
+  resetTracker() {
+    this.tracker = null;
+  }
+}
+
+/** Build a YoloTask from a user-supplied Ultralytics ONNX export by reading its embedded metadata. */
+export function customYoloTask(buffer, label) {
+  const meta = readOnnxMeta(buffer);
+  const task = (meta.task || 'detect').toLowerCase();
+  const kind = { detect: 'detect', segment: 'segment', pose: 'pose', obb: 'obb', classify: 'classify' }[task];
+  if (!kind) throw new Error('Unsupported task "' + task + '" – expected an Ultralytics detect/segment/pose/obb/classify export');
+  if (meta.end2end === 'True') throw new Error('End-to-end (NMS-fused) exports are not supported; export with nms=False');
+  let names = null;
+  if (meta.names) {
+    const obj = parsePyDict(meta.names);
+    names = Object.keys(obj).sort((a, b) => a - b).map((k) => obj[k]);
+  }
+  let size = meta.inputShape?.[3] || 640;
+  if (!size && meta.imgsz) size = JSON.parse(meta.imgsz)[1];
+  if (kind === 'classify' && !meta.inputShape?.[3]) size = 224;
+  const kptShape = meta.kpt_shape ? JSON.parse(meta.kpt_shape) : kind === 'pose' ? [17, 3] : undefined;
+  if (!names) throw new Error('No class names in ONNX metadata – export with Ultralytics ≥ 8.1');
+  return new YoloTask({ kind, size, names, kptShape, buffer, label, meta });
+}
+
+/** Parse Ultralytics' python-dict `names` string, e.g. "{0: 'person', 1: 'bike'}". */
+function parsePyDict(str) {
+  const out = {};
+  const re = /(\d+):\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/g;
+  let m;
+  while ((m = re.exec(str))) out[m[1]] = (m[2] ?? m[3]).replace(/\\(.)/g, '$1');
+  return out;
 }
 
 function clamp(v, lo, hi) {
@@ -174,7 +237,7 @@ function nms(cands, iouThr, maxDet, rotated) {
   return kept;
 }
 
-function boxIou(a, b) {
+export function boxIou(a, b) {
   const ix = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
   const iy = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
   const inter = ix * iy;
@@ -191,7 +254,7 @@ function covariance(o) {
 }
 
 /** Probabilistic IoU between two oriented boxes (Ultralytics `probiou`, Bhattacharyya distance). */
-function probiou(o1, o2, eps = 1e-7) {
+export function probiou(o1, o2, eps = 1e-7) {
   const [a1, b1, c1] = covariance(o1);
   const [a2, b2, c2] = covariance(o2);
   const dx = o1.cx - o2.cx;
@@ -236,4 +299,88 @@ function buildMasks(kept, data, anchors, nc, maskDim, protos, inputSize) {
     }
   }
   return { data: out, count: kept.length, width: pw, height: ph };
+}
+
+/* ---------------- tracking ---------------- */
+
+/**
+ * ByteTrack-style multi-object tracker (IoU association in two passes: high-score
+ * detections first, then low-score ones against still-unmatched tracks). Constant-velocity
+ * prediction, no Kalman filter – plenty for browser frame rates. Assigns `id` to each detection.
+ */
+class Tracker {
+  constructor({ highThr = 0.5, matchThr = 0.3, maxLost = 30, minHits = 2 } = {}) {
+    this.highThr = highThr;
+    this.matchThr = matchThr;
+    this.maxLost = maxLost;
+    this.minHits = minHits;
+    this.tracks = [];
+    this.nextId = 1;
+  }
+
+  update(dets, rotated) {
+    const toBox = (d) => (rotated ? { x1: d.cx - d.w / 2, y1: d.cy - d.h / 2, x2: d.cx + d.w / 2, y2: d.cy + d.h / 2 } : { x1: d.x, y1: d.y, x2: d.x + d.w, y2: d.y + d.h });
+    // Predict.
+    for (const t of this.tracks) {
+      t.box = { x1: t.box.x1 + t.vx, y1: t.box.y1 + t.vy, x2: t.box.x2 + t.vx, y2: t.box.y2 + t.vy };
+      t.lost++;
+    }
+    const boxes = dets.map(toBox);
+    const high = [];
+    const low = [];
+    dets.forEach((d, i) => (d.score >= this.highThr ? high : low).push(i));
+    const unmatchedTracks = new Set(this.tracks.map((_, i) => i));
+    const assign = (detIdx) => {
+      const pairs = [];
+      for (const ti of unmatchedTracks) for (const di of detIdx) {
+        if (this.tracks[ti].cls !== dets[di].cls) continue;
+        const iou = boxIou(this.tracks[ti].box, boxes[di]);
+        if (iou >= this.matchThr) pairs.push([iou, ti, di]);
+      }
+      pairs.sort((a, b) => b[0] - a[0]);
+      const usedDet = new Set();
+      for (const [, ti, di] of pairs) {
+        if (!unmatchedTracks.has(ti) || usedDet.has(di)) continue;
+        this.match(this.tracks[ti], dets[di], boxes[di]);
+        unmatchedTracks.delete(ti);
+        usedDet.add(di);
+      }
+      return detIdx.filter((di) => !usedDet.has(di));
+    };
+    const leftHigh = assign(high);
+    assign(low);
+    // New tracks from unmatched high-confidence detections.
+    for (const di of leftHigh) {
+      this.tracks.push({ id: this.nextId++, cls: dets[di].cls, box: boxes[di], vx: 0, vy: 0, lost: 0, hits: 1, trail: [center(boxes[di])] });
+      dets[di].id = this.tracks[this.tracks.length - 1].id;
+      dets[di].trail = this.tracks[this.tracks.length - 1].trail;
+    }
+    this.tracks = this.tracks.filter((t) => t.lost <= this.maxLost);
+    // Only expose ids of tracks that have been seen at least minHits times (suppresses flicker).
+    for (const d of dets) {
+      const t = this.tracks.find((t) => t.id === d.id);
+      if (t && t.hits < this.minHits) {
+        delete d.id;
+        delete d.trail;
+      }
+    }
+  }
+
+  match(t, det, box) {
+    const c0 = center(t.box);
+    const c1 = center(box);
+    t.vx = 0.7 * t.vx + 0.3 * (c1[0] - c0[0]);
+    t.vy = 0.7 * t.vy + 0.3 * (c1[1] - c0[1]);
+    t.box = box;
+    t.lost = 0;
+    t.hits++;
+    t.trail.push(c1);
+    if (t.trail.length > 40) t.trail.shift();
+    det.id = t.id;
+    det.trail = t.trail;
+  }
+}
+
+function center(b) {
+  return [(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2];
 }

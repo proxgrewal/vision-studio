@@ -65,6 +65,7 @@ export class SemanticTask {
     for (let i = 0; i < labelMap.length; i++) counts[labelMap[i]]++;
     const t3 = performance.now();
     return {
+      kind: 'semantic',
       labelMap,
       width,
       height,

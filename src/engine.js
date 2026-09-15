@@ -46,6 +46,15 @@ export class Engine {
     return result;
   }
 
+  /** Load a user-supplied Ultralytics ONNX export (ArrayBuffer is transferred to the worker). */
+  loadCustom(buffer, label, backend, onProgress) {
+    return this.call({ type: 'loadCustom', buffer, label, backend }, { transfer: [buffer], onProgress });
+  }
+
+  resetTracker() {
+    return this.call({ type: 'resetTracker' });
+  }
+
   clearCache() {
     return this.call({ type: 'clearCache' });
   }
