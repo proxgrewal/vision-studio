@@ -7,9 +7,9 @@ import { SemanticTask } from './tasks/semantic.js';
 const tasks = {};
 const loading = {}; // task id → in-flight load promise, so concurrent requests share one download
 
-function getTask(id, baseUrl) {
+function getTask(id) {
   if (!tasks[id]) {
-    if (['detect', 'segment', 'obb', 'classify'].includes(id)) tasks[id] = new YoloTask(id, baseUrl);
+    if (['detect', 'segment', 'obb', 'classify'].includes(id)) tasks[id] = new YoloTask(id);
     else if (id === 'depth') tasks[id] = new DepthTask();
     else if (id === 'semantic') tasks[id] = new SemanticTask();
     else throw new Error('Unknown task ' + id);
@@ -24,8 +24,8 @@ self.onmessage = async (e) => {
     if (type === 'init') {
       reply({ type: 'ready', backend: await detectBackend() });
     } else if (type === 'load') {
-      const { task, backend, variant, baseUrl } = e.data;
-      const impl = getTask(task, baseUrl);
+      const { task, backend, variant } = e.data;
+      const impl = getTask(task);
       const key = task + '|' + backend + '|' + variant;
       if (!loading[key]) {
         loading[key] = impl
@@ -36,8 +36,8 @@ self.onmessage = async (e) => {
       reply({ type: 'loaded', backend: impl.backend, variant: impl.variant, labels: impl.labels || null });
     } else if (type === 'run') {
       const { task, bitmap, opts } = e.data;
-      const impl = getTask(task);
-      if (!impl.session) throw new Error('Model not loaded');
+      const impl = tasks[task];
+      if (!impl?.session) throw new Error('Model not loaded');
       const result = await impl.run(bitmap, bitmap.width, bitmap.height, opts);
       bitmap.close();
       const { transfer = [], ...rest } = result;

@@ -4,11 +4,14 @@ import { createSession, fetchModel, loadOrt } from '../runtime.js';
 
 /** Per-head configuration for the Ultralytics YOLO11 ONNX exports in /models. */
 const KINDS = {
-  detect: { files: { n: 'models/yolo11n.onnx', s: 'models/yolo11s.onnx' }, size: 640, names: COCO_CLASSES },
-  segment: { files: { n: 'models/yolo11n-seg.onnx', s: 'models/yolo11s-seg.onnx' }, size: 640, names: COCO_CLASSES },
-  obb: { files: { n: 'models/yolo11n-obb.onnx', s: 'models/yolo11s-obb.onnx' }, size: 1024, names: DOTA_CLASSES },
-  classify: { files: { n: 'models/yolo11n-cls.onnx', s: 'models/yolo11s-cls.onnx' }, size: 224, names: null, namesFile: 'models/imagenet-names.json' },
+  detect: { files: { n: 'yolo11n.onnx', s: 'yolo11s.onnx' }, size: 640, names: COCO_CLASSES },
+  segment: { files: { n: 'yolo11n-seg.onnx', s: 'yolo11s-seg.onnx' }, size: 640, names: COCO_CLASSES },
+  obb: { files: { n: 'yolo11n-obb.onnx', s: 'yolo11s-obb.onnx' }, size: 1024, names: DOTA_CLASSES },
+  classify: { files: { n: 'yolo11n-cls.onnx', s: 'yolo11s-cls.onnx' }, size: 224, names: null, namesFile: 'imagenet-names.json' },
 };
+
+/** Model files live in /models next to /src; resolve against this module's own URL so no base needs passing in. */
+const modelUrl = (file) => new URL('../../models/' + file, import.meta.url).href;
 
 /**
  * YOLO11 on ONNX Runtime Web.
@@ -18,10 +21,9 @@ const KINDS = {
  *  classify : output0 [1, 1000] softmax probabilities
  */
 export class YoloTask {
-  constructor(kind, baseUrl) {
+  constructor(kind) {
     this.kind = kind;
     this.cfg = KINDS[kind];
-    this.baseUrl = baseUrl;
     this.session = null;
     this.backend = null;
     this.requested = null;
@@ -35,9 +37,9 @@ export class YoloTask {
 
   async load(backend, variant, onProgress) {
     const v = this.pickVariant(backend, variant);
-    if (!this.labels) this.labels = await fetch(new URL(this.cfg.namesFile, this.baseUrl)).then((r) => r.json());
+    if (!this.labels) this.labels = await fetch(modelUrl(this.cfg.namesFile)).then((r) => r.json());
     if (this.session && this.variant === v && this.requested === backend) return;
-    const buffer = await fetchModel(new URL(this.cfg.files[v], this.baseUrl).href, onProgress);
+    const buffer = await fetchModel(modelUrl(this.cfg.files[v]), onProgress);
     const { session, backend: used } = await createSession(buffer, backend);
     this.session = session;
     this.backend = used;

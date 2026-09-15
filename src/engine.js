@@ -36,7 +36,7 @@ export class Engine {
   }
 
   load(task, backend, variant, onProgress) {
-    return this.call({ type: 'load', task, backend, variant, baseUrl: document.baseURI }, { onProgress });
+    return this.call({ type: 'load', task, backend, variant }, { onProgress });
   }
 
   /** `source` is anything createImageBitmap accepts (img, canvas, video). */
