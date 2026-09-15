@@ -1,7 +1,7 @@
 import { Engine } from './src/engine.js';
 import { COCO_CLASSES, DOTA_CLASSES, rgbCss } from './src/labels.js';
 import { RENDERERS } from './src/render.js';
-import { canvasBlob, depthPng16, downloadBlob, labelMapPng, masksZip, toCoco, toYoloTxt } from './src/export.js';
+import { canvasBlob, depthPng16, downloadBlob, labelMapPng, masksZip, samMasksZip, toCoco, toYoloTxt } from './src/export.js';
 import { ZipWriter } from './src/zip.js';
 
 const TASKS = {
@@ -12,6 +12,7 @@ const TASKS = {
   classify: { name: 'YOLO11 classify', desc: 'YOLO11 image classification — top-5 ImageNet labels (1000 classes) for the whole image.', sizes: ['n', 's'] },
   semantic: { name: 'SegFormer-B0 ADE20K', desc: 'SegFormer semantic segmentation — labels every pixel with one of 150 ADE20K scene classes.', sizes: [] },
   depth: { name: 'Depth Anything V2 S', desc: 'Depth Anything V2 — monocular relative depth for any image.', sizes: [] },
+  sam: { name: 'SlimSAM', desc: 'Segment Anything (SlimSAM) — click any object to get its mask; shift+click to exclude.', sizes: [] },
   custom: { name: 'Custom model', desc: 'Your own Ultralytics ONNX export.', sizes: [] },
 };
 const YOLO_TASKS = new Set(['detect', 'segment', 'pose', 'obb', 'classify', 'custom']);
@@ -203,6 +204,7 @@ async function infer() {
     await enrich(result, d, s, moving);
     result.task = task;
     state.result = result;
+    if (result.kind === 'sam') setStatus('Image encoded in ' + result.timing.infer.toFixed(0) + ' ms — click an object to segment it');
     if (s.countLine && state.countLine && result.detections) updateCounts(result);
     render();
     updateStats(result);
@@ -270,7 +272,7 @@ function updateResults(result) {
   const list = $('results-list');
   const renderer = RENDERERS[result.kind];
   const rows = renderer ? renderer.summary(result) : [];
-  const titles = { detect: 'Detections', segment: 'Instances', pose: 'People', obb: 'Oriented boxes', classify: 'Top-5 classes', semantic: 'Classes (share of image)', depth: 'Depth' };
+  const titles = { detect: 'Detections', segment: 'Instances', pose: 'People', obb: 'Oriented boxes', classify: 'Top-5 classes', semantic: 'Classes (share of image)', depth: 'Depth', sam: 'Segment Anything objects' };
   $('results-title').textContent = (titles[result.kind] || 'Results') + (result.detections ? ' · ' + result.detections.length : '');
   const empty = result.kind === 'obb' ? 'No aerial objects found — OBB is trained on satellite / drone imagery (try the marina sample).' : 'Nothing above the confidence threshold — try lowering it.';
   list.replaceChildren(
@@ -499,7 +501,7 @@ async function listCameras() {
 
 async function liveLoop() {
   while (state.live) {
-    if (!state.busy && video.readyState >= 2 && !video.paused) await infer();
+    if (!state.busy && video.readyState >= 2 && !video.paused && state.task !== 'sam') await infer();
     if (state.source?.kind === 'video') syncScrub();
     await new Promise((r) => requestAnimationFrame(r));
   }
@@ -583,6 +585,29 @@ async function loadCustomFromUrl(url) {
   }
 }
 
+async function samDecode() {
+  const r = state.result;
+  if (!r) return;
+  if (!r.points.length) {
+    r.preview = null;
+    render();
+    updateResults(r);
+    return;
+  }
+  state.busy = true;
+  try {
+    r.preview = await engine.samPrompt(r.points);
+    $('stat-infer').textContent = r.preview.timing.infer.toFixed(0);
+    $('stat-total').textContent = r.preview.timing.total.toFixed(0);
+    render();
+    updateResults(r);
+  } catch (err) {
+    setStatus('SAM error: ' + err.message, { error: true });
+  } finally {
+    state.busy = false;
+  }
+}
+
 /* ---------- task switching ---------- */
 function setTask(task) {
   if (task === 'custom' && !state.custom) return;
@@ -604,6 +629,9 @@ function setTask(task) {
   $('row-finegrained').hidden = !BOX_KINDS.has(kind);
   $('settings-mask').hidden = !(kind === 'segment' || kind === 'semantic' || kind === 'obb');
   $('settings-depth').hidden = task !== 'depth';
+  $('settings-sam').hidden = task !== 'sam';
+  $('settings-mask').hidden = $('settings-mask').hidden && task !== 'sam';
+  stage.classList.toggle('drawline', task === 'sam' || settings().countLine);
   state.result = null;
   $('results-list').replaceChildren();
   $('results-title').textContent = 'Results';
@@ -690,7 +718,9 @@ async function doExport(kind) {
       if (need(r?.detections, 'YOLO export needs a detection result')) downloadBlob(new Blob([toYoloTxt(r, d.w, d.h)], { type: 'text/plain' }), base + '.txt');
       break;
     case 'masks':
-      if (need(r?.masks?.count, 'Run instance segmentation first')) downloadBlob(await masksZip(r, d.w, d.h), base + '-masks.zip');
+      if (r?.kind === 'sam') {
+        if (need(r.objects?.length || r.preview, 'Click an object first')) downloadBlob(await samMasksZip(r, d.w, d.h), base + '-masks.zip');
+      } else if (need(r?.masks?.count, 'Run instance segmentation first')) downloadBlob(await masksZip(r, d.w, d.h), base + '-masks.zip');
       break;
     case 'depth16':
       if (need(r?.raw, 'Run depth estimation first')) downloadBlob(await depthPng16(r), base + '-depth16.png');
@@ -853,6 +883,7 @@ function wire() {
     syncScrub();
   });
   video.addEventListener('ended', () => ($('btn-play').textContent = 'Play'));
+  video.addEventListener('pause', () => state.task === 'sam' && state.source?.kind === 'video' && infer());
   $('video-loop').addEventListener('change', () => (video.loop = $('video-loop').checked));
   $('btn-record').addEventListener('click', toggleRecording);
 
@@ -904,9 +935,48 @@ function wire() {
   cmp.addEventListener('pointerup', render);
   cmp.addEventListener('pointerleave', render);
 
+  // Segment Anything clicks.
+  canvas.addEventListener('click', async (e) => {
+    if (state.task !== 'sam' || !state.result?.embedded || state.busy) return;
+    const p = canvasPoint(e);
+    state.result.points.push({ x: p.x, y: p.y, label: e.shiftKey ? 0 : 1 });
+    await samDecode();
+  });
+  $('sam-keep').addEventListener('click', () => {
+    const r = state.result;
+    if (!r?.preview) return;
+    r.objects = r.objects || [];
+    r.objects.push(r.preview);
+    r.preview = null;
+    r.points = [];
+    render();
+    updateResults(r);
+  });
+  $('sam-undo').addEventListener('click', async () => {
+    const r = state.result;
+    if (!r?.points?.length) return;
+    r.points.pop();
+    await samDecode();
+  });
+  $('sam-clear').addEventListener('click', () => {
+    const r = state.result;
+    if (!r) return;
+    r.points = [];
+    r.preview = null;
+    r.objects = [];
+    render();
+    updateResults(r);
+  });
+  $('sam-export').addEventListener('click', async () => {
+    const r = state.result;
+    const d = sourceDims();
+    if (!r?.objects?.length && !r?.preview) return setStatus('Click an object first', { error: true });
+    downloadBlob(await samMasksZip(r, d.w, d.h), 'vision-studio-sam-masks.zip');
+  });
+
   // Count-line drawing on the canvas.
   canvas.addEventListener('pointerdown', (e) => {
-    if (!settings().countLine) return;
+    if (!settings().countLine || state.task === 'sam') return;
     const p = canvasPoint(e);
     state.drawingLine = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     try {

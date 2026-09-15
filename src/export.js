@@ -170,3 +170,29 @@ export function depthPng16(result) {
   for (let i = 0; i < raw.length; i++) samples[i] = Math.round(((raw[i] - min) / range) * 65535);
   return encodePng16(width, height, samples);
 }
+
+/** SAM objects → one full-resolution binary PNG each, zipped. */
+export async function samMasksZip(result, W, H) {
+  const zip = new ZipWriter();
+  const objects = [...(result.objects || []), ...(result.preview ? [result.preview] : [])];
+  const small = document.createElement('canvas');
+  const full = document.createElement('canvas');
+  full.width = W;
+  full.height = H;
+  const fctx = full.getContext('2d');
+  for (let n = 0; n < objects.length; n++) {
+    const m = objects[n];
+    small.width = m.width;
+    small.height = m.height;
+    const sctx = small.getContext('2d');
+    const img = sctx.createImageData(m.width, m.height);
+    for (let i = 0; i < m.mask.length; i++) img.data.set([m.mask[i], m.mask[i], m.mask[i], 255], i * 4);
+    sctx.putImageData(img, 0, 0);
+    fctx.fillStyle = '#000';
+    fctx.fillRect(0, 0, W, H);
+    fctx.imageSmoothingEnabled = false;
+    fctx.drawImage(small, 0, 0, m.cropW, m.cropH, 0, 0, W, H);
+    await zip.add('object_' + String(n + 1).padStart(2, '0') + '.png', await canvasBlob(full));
+  }
+  return zip.blob();
+}

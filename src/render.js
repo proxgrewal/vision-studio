@@ -238,6 +238,51 @@ export function summarySemantic(result) {
   return rows.filter((r) => r.pct >= 0.002).map((r) => ({ label: r.label, color: r.color, value: (r.pct * 100).toFixed(1) + '%' }));
 }
 
+/* ---------- Segment Anything ---------- */
+function drawSamMask(ctx, m, color, W, H, alpha) {
+  scratch.width = m.width;
+  scratch.height = m.height;
+  const img = sctx.createImageData(m.width, m.height);
+  const px = img.data;
+  for (let i = 0, o = 0; i < m.mask.length; i++, o += 4) {
+    if (!m.mask[i]) continue;
+    px[o] = color[0];
+    px[o + 1] = color[1];
+    px[o + 2] = color[2];
+    px[o + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(scratch, 0, 0, m.cropW, m.cropH, 0, 0, W, H);
+  ctx.restore();
+}
+
+export function drawSam(ctx, result, W, H, { maskOpacity = 0.5 } = {}) {
+  const objects = result.objects || [];
+  objects.forEach((o, i) => drawSamMask(ctx, o, classColor(i), W, H, maskOpacity));
+  if (result.preview) drawSamMask(ctx, result.preview, classColor(objects.length), W, H, maskOpacity);
+  const r = Math.max(4, Math.min(W, H) / 120);
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5, r / 3);
+  ctx.strokeStyle = '#fff';
+  for (const p of result.points || []) {
+    ctx.fillStyle = p.label ? '#38e07b' : '#ff4d4d';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function summarySam(result) {
+  const rows = (result.objects || []).map((o, i) => ({ label: 'Object ' + (i + 1), color: classColor(i), value: 'IoU ' + (o.iou * 100).toFixed(0) + '%' }));
+  if (result.preview) rows.push({ label: 'Current selection', color: classColor(rows.length), value: 'IoU ' + (result.preview.iou * 100).toFixed(0) + '%' });
+  return rows;
+}
+
 /* ---------- depth ---------- */
 export function drawDepth(ctx, result, W, H, { colormap = 'inferno', blend = 1, invert = false } = {}) {
   const { depth, width, height } = result;
@@ -278,4 +323,5 @@ export const RENDERERS = {
   classify: { draw: drawClassify, summary: summaryClassify },
   semantic: { draw: drawSemantic, summary: summarySemantic },
   depth: { draw: drawDepth, summary: summaryDepth },
+  sam: { draw: drawSam, summary: summarySam },
 };

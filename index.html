@@ -43,6 +43,7 @@
           <button data-task="classify" role="tab">Classify</button>
           <button data-task="semantic" role="tab">Semantic</button>
           <button data-task="depth" role="tab">Depth</button>
+          <button data-task="sam" role="tab">Click-Seg</button>
           <button data-task="custom" role="tab" hidden>Custom</button>
         </div>
         <p id="task-desc" class="hint">YOLO11 object detection — 80 COCO classes with bounding boxes.</p>
@@ -122,6 +123,17 @@
         </label>
         <label class="check"><input id="depth-invert" type="checkbox" /> Invert (far = bright)</label>
         <button id="btn-3d" class="btn">View as 3D point cloud</button>
+      </section>
+
+      <section id="settings-sam" hidden>
+        <h2>Segment Anything</h2>
+        <p class="hint"><b>Click</b> an object to segment it · <b>Shift+click</b> marks background · keep adding points to refine.</p>
+        <div class="grid2">
+          <button id="sam-keep" class="btn primary">Keep object</button>
+          <button id="sam-undo" class="btn">Undo point</button>
+          <button id="sam-clear" class="btn ghost">Clear all</button>
+          <button id="sam-export" class="btn">Masks (ZIP)</button>
+        </div>
       </section>
 
       <details class="advanced">

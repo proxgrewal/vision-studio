@@ -3,6 +3,7 @@ import { clearModelCache, detectBackend } from './runtime.js';
 import { YOLO_KINDS, YoloTask, customYoloTask } from './tasks/yolo.js';
 import { DepthTask } from './tasks/depth.js';
 import { SemanticTask } from './tasks/semantic.js';
+import { SamTask } from './tasks/sam.js';
 
 const tasks = {};
 const loading = {}; // task id → in-flight load promise, so concurrent requests share one download
@@ -12,6 +13,7 @@ function getTask(id) {
     if (YOLO_KINDS[id]) tasks[id] = new YoloTask(YOLO_KINDS[id]);
     else if (id === 'depth') tasks[id] = new DepthTask();
     else if (id === 'semantic') tasks[id] = new SemanticTask();
+    else if (id === 'sam') tasks[id] = new SamTask();
     else throw new Error('Unknown task ' + id);
   }
   return tasks[id];
@@ -52,6 +54,11 @@ self.onmessage = async (e) => {
       const result = await impl.run(bitmap, bitmap.width, bitmap.height, opts);
       bitmap.close();
       const { transfer = [], ...rest } = result;
+      reply({ type: 'result', result: rest }, transfer);
+    } else if (type === 'samPrompt') {
+      const impl = tasks.sam;
+      if (!impl?.embedding) throw new Error('Encode an image first');
+      const { transfer = [], ...rest } = await impl.prompt(e.data.points);
       reply({ type: 'result', result: rest }, transfer);
     } else if (type === 'resetTracker') {
       for (const t of Object.values(tasks)) t.resetTracker?.();
