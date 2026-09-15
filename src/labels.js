@@ -10,6 +10,12 @@ export const COCO_CLASSES = [
   'hair drier', 'toothbrush',
 ];
 
+/** DOTA v1 aerial classes used by YOLO11-obb. */
+export const DOTA_CLASSES = [
+  'plane', 'ship', 'storage tank', 'baseball diamond', 'tennis court', 'basketball court', 'ground track field',
+  'harbor', 'bridge', 'large vehicle', 'small vehicle', 'helicopter', 'roundabout', 'soccer ball field', 'swimming pool',
+];
+
 // 20 hand-picked, high-contrast colours for the most common classes; golden-angle hues beyond that.
 const BASE_PALETTE = [
   '#ff3838', '#48f90a', '#00c2ff', '#ffb21d', '#cb38ff', '#00d4bb', '#ff701f', '#6473ff', '#ff95c8', '#92cc17',

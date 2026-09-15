@@ -9,7 +9,7 @@ const loading = {}; // task id → in-flight load promise, so concurrent request
 
 function getTask(id, baseUrl) {
   if (!tasks[id]) {
-    if (id === 'detect' || id === 'segment') tasks[id] = new YoloTask(id, baseUrl);
+    if (['detect', 'segment', 'obb', 'classify'].includes(id)) tasks[id] = new YoloTask(id, baseUrl);
     else if (id === 'depth') tasks[id] = new DepthTask();
     else if (id === 'semantic') tasks[id] = new SemanticTask();
     else throw new Error('Unknown task ' + id);

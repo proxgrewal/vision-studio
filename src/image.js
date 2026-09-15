@@ -50,6 +50,28 @@ export function resizeNormalize(source, width, height, srcW, srcH, mean = [0.485
   return tensor;
 }
 
+/**
+ * Ultralytics classification transform: shorter side → size, centre crop, RGB in [0,1].
+ * Returns NCHW float32.
+ */
+export function centerCrop(source, size, srcW, srcH) {
+  const side = Math.min(srcW, srcH);
+  const sx = (srcW - side) / 2;
+  const sy = (srcH - side) / 2;
+  scratch.width = size;
+  scratch.height = size;
+  sctx.drawImage(source, sx, sy, side, side, 0, 0, size, size);
+  const { data } = sctx.getImageData(0, 0, size, size);
+  const plane = size * size;
+  const tensor = new Float32Array(3 * plane);
+  for (let i = 0, p = 0; i < plane; i++, p += 4) {
+    tensor[i] = data[p] / 255;
+    tensor[i + plane] = data[p + 1] / 255;
+    tensor[i + 2 * plane] = data[p + 2] / 255;
+  }
+  return tensor;
+}
+
 export function sigmoid(x) {
   return 1 / (1 + Math.exp(-x));
 }

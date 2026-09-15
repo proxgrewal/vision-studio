@@ -5,17 +5,21 @@ import { RENDERERS } from './src/render.js';
 const TASKS = {
   detect: { name: 'YOLO11 detect', desc: 'YOLO11 object detection — 80 COCO classes with bounding boxes.' },
   segment: { name: 'YOLO11 segment', desc: 'YOLO11 instance segmentation — a pixel mask for every detected object.' },
+  obb: { name: 'YOLO11 OBB', desc: 'YOLO11 oriented bounding boxes — rotated boxes for aerial imagery (15 DOTA classes: planes, ships, vehicles…).' },
+  classify: { name: 'YOLO11 classify', desc: 'YOLO11 image classification — top-5 ImageNet labels (1000 classes) for the whole image.' },
   semantic: { name: 'SegFormer-B0 ADE20K', desc: 'SegFormer semantic segmentation — labels every pixel with one of 150 ADE20K scene classes.' },
   depth: { name: 'Depth Anything V2 S', desc: 'Depth Anything V2 — monocular relative depth for any image.' },
 };
+
+const YOLO_TASKS = new Set(['detect', 'segment', 'obb', 'classify']);
 
 const engine = new Engine();
 
 const SAMPLES = [
   { file: 'samples/bus.jpg', alt: 'Bus and pedestrians' },
   { file: 'samples/street.jpg', alt: 'Street with stop sign' },
+  { file: 'samples/boats.jpg', alt: 'Marina from above (aerial)' },
   { file: 'samples/living-room.jpg', alt: 'Living room' },
-  { file: 'samples/zidane.jpg', alt: 'Two people' },
   { file: 'samples/cats.jpg', alt: 'Two cats' },
   { file: 'samples/river.jpg', alt: 'River under a bridge' },
 ];
@@ -77,7 +81,7 @@ function fmtMB(bytes) {
 async function ensureModel() {
   const { name } = TASKS[state.task];
   const backend = backendChoice();
-  const isYolo = state.task === 'detect' || state.task === 'segment';
+  const isYolo = YOLO_TASKS.has(state.task);
   const variant = isYolo ? state.size : settings().precision;
   const key = state.task + '|' + backend + '|' + variant;
   if (state.loadedKey === key) return;
@@ -179,7 +183,7 @@ function updateStats(result) {
 function updateResults(result) {
   const list = $('results-list');
   const rows = RENDERERS[state.task].summary(result);
-  const titles = { detect: 'Detections', segment: 'Instances', semantic: 'Classes (share of image)', depth: 'Depth' };
+  const titles = { detect: 'Detections', segment: 'Instances', obb: 'Oriented boxes', classify: 'Top-5 ImageNet classes', semantic: 'Classes (share of image)', depth: 'Depth' };
   $('results-title').textContent = titles[state.task] + (result.detections ? ' · ' + result.detections.length : '');
   list.replaceChildren(
     ...(rows.length
@@ -199,7 +203,7 @@ function updateResults(result) {
           li.append(label, v);
           return li;
         })
-      : [Object.assign(document.createElement('li'), { className: 'empty', textContent: 'Nothing above the confidence threshold — try lowering it.' })]),
+      : [Object.assign(document.createElement('li'), { className: 'empty', textContent: state.task === 'obb' ? 'No aerial objects found — OBB is trained on satellite / drone imagery (try the marina sample).' : 'Nothing above the confidence threshold — try lowering it.' })]),
   );
 }
 
@@ -307,9 +311,9 @@ function setTask(task) {
     b.setAttribute('aria-selected', on);
   });
   $('task-desc').textContent = TASKS[task].desc;
-  const yolo = task === 'detect' || task === 'segment';
-  $('settings-yolo').hidden = !yolo;
-  $('settings-mask').hidden = !(task === 'segment' || task === 'semantic');
+  $('settings-yolo').hidden = !YOLO_TASKS.has(task);
+  $('settings-nms').hidden = task === 'classify';
+  $('settings-mask').hidden = !(task === 'segment' || task === 'semantic' || task === 'obb');
   $('settings-depth').hidden = task !== 'depth';
   state.result = null;
   $('results-list').replaceChildren();

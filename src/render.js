@@ -1,7 +1,5 @@
 // Main-thread rendering of worker results onto the output canvas, plus legend summaries.
-import { COCO_CLASSES, classColor, rgbCss } from './labels.js';
-
-const YOLO_INPUT = 640;
+import { classColor, rgbCss } from './labels.js';
 
 export const COLORMAPS = {
   inferno: [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]],
@@ -36,7 +34,7 @@ export function drawYolo(ctx, result, W, H, { showLabels = true, maskOpacity = 0
   if (masks && masks.count) {
     const { width: pw, height: ph, data } = masks;
     const plane = pw * ph;
-    const scale = YOLO_INPUT / pw;
+    const scale = result.inputSize / pw;
     scratch.width = pw;
     scratch.height = ph;
     const img = sctx.createImageData(pw, ph);
@@ -61,25 +59,89 @@ export function drawYolo(ctx, result, W, H, { showLabels = true, maskOpacity = 0
     }
     ctx.restore();
   }
+  const { lw, fontPx } = setupStroke(ctx, W, H);
+  for (const d of detections) {
+    const color = classColor(d.cls);
+    ctx.strokeStyle = rgbCss(color);
+    ctx.strokeRect(d.x, d.y, d.w, d.h);
+    if (showLabels) drawTag(ctx, d.label + ' ' + (d.score * 100).toFixed(0) + '%', d.x - lw / 2, d.y, color, fontPx);
+  }
+}
+
+function setupStroke(ctx, W, H) {
   const lw = Math.max(1.5, Math.min(W, H) / 300);
   const fontPx = Math.max(12, Math.round(Math.min(W, H) / 40));
   ctx.font = '600 ' + fontPx + 'px system-ui, sans-serif';
   ctx.textBaseline = 'top';
   ctx.lineWidth = lw;
-  for (const d of detections) {
+  ctx.lineJoin = 'round';
+  return { lw, fontPx };
+}
+
+/** Filled label chip whose bottom-left corner sits at (x, y), flipped below when it would clip the top. */
+function drawTag(ctx, text, x, y, color, fontPx) {
+  const tw = ctx.measureText(text).width + fontPx * 0.6;
+  const th = fontPx * 1.4;
+  const ty = y - th >= 0 ? y - th : y;
+  ctx.fillStyle = rgbCss(color);
+  ctx.fillRect(x, ty, tw, th);
+  ctx.fillStyle = luminance(color) > 140 ? '#111' : '#fff';
+  ctx.fillText(text, x + fontPx * 0.3, ty + fontPx * 0.2);
+}
+
+/* ---------- YOLO oriented boxes ---------- */
+export function obbCorners({ cx, cy, w, h, angle }) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const hw = w / 2;
+  const hh = h / 2;
+  return [
+    [cx - hw * cos + hh * sin, cy - hw * sin - hh * cos],
+    [cx + hw * cos + hh * sin, cy + hw * sin - hh * cos],
+    [cx + hw * cos - hh * sin, cy + hw * sin + hh * cos],
+    [cx - hw * cos - hh * sin, cy - hw * sin + hh * cos],
+  ];
+}
+
+export function drawObb(ctx, result, W, H, { showLabels = true, maskOpacity = 0.5 } = {}) {
+  const { lw, fontPx } = setupStroke(ctx, W, H);
+  for (const d of result.detections) {
     const color = classColor(d.cls);
+    const pts = obbCorners(d);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < 4; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = rgbCss(color, maskOpacity * 0.35);
+    ctx.fill();
     ctx.strokeStyle = rgbCss(color);
-    ctx.strokeRect(d.x, d.y, d.w, d.h);
-    if (!showLabels) continue;
-    const text = d.label + ' ' + (d.score * 100).toFixed(0) + '%';
-    const tw = ctx.measureText(text).width + fontPx * 0.6;
-    const th = fontPx * 1.4;
-    const ty = d.y - th >= 0 ? d.y - th : d.y;
-    ctx.fillStyle = rgbCss(color);
-    ctx.fillRect(d.x - lw / 2, ty, tw, th);
-    ctx.fillStyle = luminance(color) > 140 ? '#111' : '#fff';
-    ctx.fillText(text, d.x + fontPx * 0.3 - lw / 2, ty + fontPx * 0.2);
+    ctx.stroke();
+    if (showLabels && result.detections.length <= 60) {
+      const top = pts.reduce((a, p) => (p[1] < a[1] ? p : a));
+      drawTag(ctx, d.label + ' ' + (d.score * 100).toFixed(0) + '%', top[0] - lw / 2, top[1], color, fontPx);
+    }
   }
+}
+
+/* ---------- classification ---------- */
+export function drawClassify(ctx, result, W, H) {
+  const top = result.classes[0];
+  if (!top) return;
+  const fontPx = Math.max(14, Math.round(Math.min(W, H) / 22));
+  ctx.font = '700 ' + fontPx + 'px system-ui, sans-serif';
+  ctx.textBaseline = 'top';
+  const text = top.label + '  ' + (top.score * 100).toFixed(1) + '%';
+  const pad = fontPx * 0.5;
+  const tw = ctx.measureText(text).width + pad * 2;
+  const th = fontPx * 1.5;
+  ctx.fillStyle = 'rgba(8,9,14,0.78)';
+  ctx.fillRect(pad, H - th - pad, tw, th);
+  ctx.fillStyle = '#64e0c8';
+  ctx.fillText(text, pad * 2, H - th - pad + fontPx * 0.25);
+}
+
+export function summaryClassify(result) {
+  return result.classes.map((c, i) => ({ label: c.label, color: i === 0 ? [100, 224, 200] : null, value: (c.score * 100).toFixed(1) + '%' }));
 }
 
 export function summaryYolo(result) {
@@ -87,7 +149,7 @@ export function summaryYolo(result) {
   for (const d of result.detections) counts.set(d.cls, (counts.get(d.cls) || 0) + 1);
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([cls, n]) => ({ label: COCO_CLASSES[cls], color: classColor(cls), value: '×' + n }));
+    .map(([cls, n]) => ({ label: result.detections.find((d) => d.cls === cls).label, color: classColor(cls), value: '×' + n }));
 }
 
 /* ---------- semantic ---------- */
@@ -159,6 +221,8 @@ export function summaryDepth(result) {
 export const RENDERERS = {
   detect: { draw: drawYolo, summary: summaryYolo },
   segment: { draw: drawYolo, summary: summaryYolo },
+  obb: { draw: drawObb, summary: summaryYolo },
+  classify: { draw: drawClassify, summary: summaryClassify },
   semantic: { draw: drawSemantic, summary: summarySemantic },
   depth: { draw: drawDepth, summary: summaryDepth },
 };
