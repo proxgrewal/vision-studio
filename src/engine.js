@@ -51,6 +51,11 @@ export class Engine {
     return this.call({ type: 'loadCustom', buffer, label, backend }, { transfer: [buffer], onProgress });
   }
 
+  /** YOLO-World: set the free-text classes to detect. */
+  setPrompts(prompts, onProgress) {
+    return this.call({ type: 'worldPrompts', prompts }, { onProgress });
+  }
+
   /** SAM: decode a mask for click points [{x, y, label}] on the image encoded by the last run('sam', …). */
   samPrompt(points) {
     return this.call({ type: 'samPrompt', points }).then((r) => r.result);

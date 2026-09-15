@@ -86,7 +86,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .seg button:hover { color: var(--text); }
 .seg button.active { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 2px 8px rgba(0,0,0,.35); }
 .seg.small button { padding: 7px 6px; font-size: 12.5px; }
-#task-tabs { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); }
+#task-tabs { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
 #task-tabs button { padding: 8px 2px; font-size: 12.5px; }
 
 .btn {
@@ -115,6 +115,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .slider span, .select span { display: flex; justify-content: space-between; color: var(--muted); }
 .slider output { font-family: var(--mono); color: var(--text); }
 input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+textarea { font: inherit; background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; width: 100%; }
 select { font: inherit; background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
 .check { flex-direction: row; align-items: center; gap: 8px; }
 .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }

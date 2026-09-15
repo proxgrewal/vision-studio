@@ -12,11 +12,12 @@ const TASKS = {
   classify: { name: 'YOLO11 classify', desc: 'YOLO11 image classification — top-5 ImageNet labels (1000 classes) for the whole image.', sizes: ['n', 's'] },
   semantic: { name: 'SegFormer-B0 ADE20K', desc: 'SegFormer semantic segmentation — labels every pixel with one of 150 ADE20K scene classes.', sizes: [] },
   depth: { name: 'Depth Anything V2 S', desc: 'Depth Anything V2 — monocular relative depth for any image.', sizes: [] },
+  world: { name: 'YOLO-World v2 S', desc: 'Open-vocabulary detection — type any object names and YOLO-World finds them (CLIP text embeddings, 32 prompts max).', sizes: [] },
   sam: { name: 'SlimSAM', desc: 'Segment Anything (SlimSAM) — click any object to get its mask; shift+click to exclude.', sizes: [] },
   custom: { name: 'Custom model', desc: 'Your own Ultralytics ONNX export.', sizes: [] },
 };
-const YOLO_TASKS = new Set(['detect', 'segment', 'pose', 'obb', 'classify', 'custom']);
-const BOX_KINDS = new Set(['detect', 'segment', 'pose']);
+const YOLO_TASKS = new Set(['detect', 'segment', 'pose', 'obb', 'classify', 'custom', 'world']);
+const BOX_KINDS = new Set(['detect', 'segment', 'pose', 'world']);
 
 const SAMPLES = [
   { file: 'samples/bus.jpg', alt: 'Bus and pedestrians' },
@@ -272,7 +273,7 @@ function updateResults(result) {
   const list = $('results-list');
   const renderer = RENDERERS[result.kind];
   const rows = renderer ? renderer.summary(result) : [];
-  const titles = { detect: 'Detections', segment: 'Instances', pose: 'People', obb: 'Oriented boxes', classify: 'Top-5 classes', semantic: 'Classes (share of image)', depth: 'Depth', sam: 'Segment Anything objects' };
+  const titles = { detect: 'Detections', segment: 'Instances', pose: 'People', obb: 'Oriented boxes', classify: 'Top-5 classes', semantic: 'Classes (share of image)', depth: 'Depth', sam: 'Segment Anything objects', world: 'Open-vocabulary detections' };
   $('results-title').textContent = (titles[result.kind] || 'Results') + (result.detections ? ' · ' + result.detections.length : '');
   const empty = result.kind === 'obb' ? 'No aerial objects found — OBB is trained on satellite / drone imagery (try the marina sample).' : 'Nothing above the confidence threshold — try lowering it.';
   list.replaceChildren(
@@ -630,6 +631,8 @@ function setTask(task) {
   $('settings-mask').hidden = !(kind === 'segment' || kind === 'semantic' || kind === 'obb');
   $('settings-depth').hidden = task !== 'depth';
   $('settings-sam').hidden = task !== 'sam';
+  $('settings-world').hidden = task !== 'world';
+  $('model-size').hidden = task === 'custom' || task === 'world';
   $('settings-mask').hidden = $('settings-mask').hidden && task !== 'sam';
   stage.classList.toggle('drawline', task === 'sam' || settings().countLine);
   state.result = null;
@@ -710,7 +713,7 @@ async function doExport(kind) {
       break;
     case 'coco':
       if (need(r?.detections, 'COCO export needs a detection / segmentation / pose / OBB result')) {
-        const labels = state.task === 'custom' ? state.custom.names : r.kind === 'obb' ? DOTA_CLASSES : r.kind === 'pose' ? ['person'] : COCO_CLASSES;
+        const labels = state.task === 'custom' ? state.custom.names : r.kind === 'obb' ? DOTA_CLASSES : r.kind === 'pose' ? ['person'] : r.kind === 'world' ? [...new Set(r.detections.map((d) => d.name))] : COCO_CLASSES;
         downloadBlob(new Blob([toCoco(r, d.w, d.h, state.source.label || 'image', labels)], { type: 'application/json' }), base + '-coco.json');
       }
       break;
@@ -934,6 +937,26 @@ function wire() {
   cmp.addEventListener('pointerdown', renderOriginal);
   cmp.addEventListener('pointerup', render);
   cmp.addEventListener('pointerleave', render);
+
+  // Open-vocabulary prompts.
+  const applyPrompts = async () => {
+    const prompts = $('world-prompts').value.split(/[,\n]/).map((p) => p.trim()).filter(Boolean);
+    if (!prompts.length) return;
+    try {
+      await ensureModelFor('world');
+      setStatus('Encoding prompts…');
+      const info = await engine.setPrompts(prompts, progressReporter('CLIP text encoder'));
+      const custom = info.prompts.length - info.fromVocab.length;
+      setStatus('Detecting ' + info.prompts.length + ' classes' + (custom ? ' (' + custom + ' encoded with CLIP)' : ''), { progress: 1 });
+      state.result = null;
+      infer();
+    } catch (err) {
+      setStatus('Prompt error: ' + err.message, { error: true });
+    }
+  };
+  $('world-apply').addEventListener('click', applyPrompts);
+  $('world-prompts').addEventListener('keydown', (e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), applyPrompts()));
+  $('world-coco').addEventListener('click', () => (($('world-prompts').value = COCO_CLASSES.join(', ')), applyPrompts()));
 
   // Segment Anything clicks.
   canvas.addEventListener('click', async (e) => {

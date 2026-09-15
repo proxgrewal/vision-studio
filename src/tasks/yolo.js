@@ -54,11 +54,16 @@ export class YoloTask {
     await this.warmup();
   }
 
+  /** Additional session inputs (YOLO-World feeds text embeddings here). */
+  async extraInputs() {
+    return {};
+  }
+
   async warmup() {
     const ort = await loadOrt();
     const s = this.cfg.size;
     const dummy = new ort.Tensor('float32', new Float32Array(3 * s * s), [1, 3, s, s]);
-    await this.session.run({ [this.session.inputNames[0]]: dummy });
+    await this.session.run({ [this.session.inputNames[0]]: dummy, ...(await this.extraInputs()) });
   }
 
   async run(source, srcW, srcH, opts = {}) {
@@ -96,8 +101,9 @@ export class YoloTask {
     const t0 = performance.now();
     const lb = letterbox(source, size, srcW, srcH);
     const input = new ort.Tensor('float32', lb.tensor, [1, 3, size, size]);
+    const extra = await this.extraInputs();
     const t1 = performance.now();
-    const outputs = await this.session.run({ [this.session.inputNames[0]]: input });
+    const outputs = await this.session.run({ [this.session.inputNames[0]]: input, ...extra });
     const t2 = performance.now();
 
     const out0 = outputs[this.session.outputNames[0]];

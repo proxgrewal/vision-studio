@@ -4,6 +4,7 @@ import { YOLO_KINDS, YoloTask, customYoloTask } from './tasks/yolo.js';
 import { DepthTask } from './tasks/depth.js';
 import { SemanticTask } from './tasks/semantic.js';
 import { SamTask } from './tasks/sam.js';
+import { WorldTask } from './tasks/world.js';
 
 const tasks = {};
 const loading = {}; // task id → in-flight load promise, so concurrent requests share one download
@@ -14,6 +15,7 @@ function getTask(id) {
     else if (id === 'depth') tasks[id] = new DepthTask();
     else if (id === 'semantic') tasks[id] = new SemanticTask();
     else if (id === 'sam') tasks[id] = new SamTask();
+    else if (id === 'world') tasks[id] = new WorldTask();
     else throw new Error('Unknown task ' + id);
   }
   return tasks[id];
@@ -55,6 +57,11 @@ self.onmessage = async (e) => {
       bitmap.close();
       const { transfer = [], ...rest } = result;
       reply({ type: 'result', result: rest }, transfer);
+    } else if (type === 'worldPrompts') {
+      const impl = getTask('world');
+      if (!impl.vocab) throw new Error('Load the open-vocabulary model first');
+      const info = await impl.setPrompts(e.data.prompts, (p) => self.postMessage({ id, type: 'progress', ...p }));
+      reply({ type: 'ok', ...info });
     } else if (type === 'samPrompt') {
       const impl = tasks.sam;
       if (!impl?.embedding) throw new Error('Encode an image first');

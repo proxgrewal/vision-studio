@@ -43,6 +43,7 @@
           <button data-task="classify" role="tab">Classify</button>
           <button data-task="semantic" role="tab">Semantic</button>
           <button data-task="depth" role="tab">Depth</button>
+          <button data-task="world" role="tab">Open-vocab</button>
           <button data-task="sam" role="tab">Click-Seg</button>
           <button data-task="custom" role="tab" hidden>Custom</button>
         </div>
@@ -123,6 +124,16 @@
         </label>
         <label class="check"><input id="depth-invert" type="checkbox" /> Invert (far = bright)</label>
         <button id="btn-3d" class="btn">View as 3D point cloud</button>
+      </section>
+
+      <section id="settings-world" hidden>
+        <h2>What to detect</h2>
+        <textarea id="world-prompts" rows="2" placeholder="person, red backpack, traffic light, a dog wearing a hat" spellcheck="false">person, car, dog, cat, bottle</textarea>
+        <div class="grid2">
+          <button id="world-apply" class="btn primary">Detect these</button>
+          <button id="world-coco" class="btn">Use 80 COCO classes</button>
+        </div>
+        <p class="hint" id="world-hint">Comma-separated, up to 32 phrases. 1,670 common nouns are instant; other phrases download the CLIP text encoder once (72 MB).</p>
       </section>
 
       <section id="settings-sam" hidden>

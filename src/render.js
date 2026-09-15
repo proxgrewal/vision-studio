@@ -319,6 +319,7 @@ export const RENDERERS = {
   detect: { draw: drawYolo, summary: summaryYolo },
   segment: { draw: drawYolo, summary: summaryYolo },
   pose: { draw: drawYolo, summary: summaryYolo },
+  world: { draw: drawYolo, summary: summaryYolo },
   obb: { draw: drawObb, summary: summaryYolo },
   classify: { draw: drawClassify, summary: summaryClassify },
   semantic: { draw: drawSemantic, summary: summarySemantic },
