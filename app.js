@@ -12,7 +12,7 @@ const TASKS = {
   obb: { name: 'YOLO11 OBB', desc: 'YOLO11 oriented bounding boxes — rotated boxes for aerial imagery (15 DOTA classes: planes, ships, vehicles…).', sizes: ['n', 's'] },
   classify: { name: 'YOLO11 classify', desc: 'YOLO11 image classification — top-5 ImageNet labels (1000 classes) for the whole image.', sizes: ['n', 's'] },
   semantic: { name: 'SegFormer-B0 ADE20K', desc: 'SegFormer semantic segmentation — labels every pixel with one of 150 ADE20K scene classes.', sizes: [] },
-  depth: { name: 'Depth Anything V2 S', desc: 'Depth Anything V2 — monocular relative depth for any image.', sizes: [] },
+  depth: { name: 'Depth Anything V2', desc: 'Depth Anything V2 — monocular relative depth for any image.', sizes: [] },
   world: { name: 'YOLO-World v2 S', desc: 'Open-vocabulary detection — type any object names and YOLO-World finds them (CLIP text embeddings, 32 prompts max).', sizes: [] },
   sam: { name: 'SlimSAM', desc: 'Segment Anything (SlimSAM) — click any object to get its mask; shift+click to exclude.', sizes: [] },
   custom: { name: 'Custom model', desc: 'Your own Ultralytics ONNX export.', sizes: [] },
@@ -77,6 +77,7 @@ function settings() {
     countLine: $('count-line').checked,
     distance: $('distance').checked,
     finegrained: $('finegrained').checked,
+    depthSize: $('depth-size').value,
   };
 }
 
@@ -115,14 +116,14 @@ async function ensureModelFor(task) {
     return;
   }
   const backend = backendChoice();
-  const variant = YOLO_TASKS.has(task) ? (TASKS[task].sizes.includes(state.size) ? state.size : 'n') : settings().precision;
+  const variant = YOLO_TASKS.has(task) ? (TASKS[task].sizes.includes(state.size) ? state.size : 'n') : task === 'depth' ? settings().depthSize + ':' + settings().precision : settings().precision;
   const key = backend + '|' + variant;
   if (loaded.get(task) === key) return;
   const name = TASKS[task].name;
   setStatus('Loading ' + name + '…', { progress: 0 });
   const info = await engine.load(task, backend, variant, progressReporter(name));
   loaded.set(task, key);
-  setStatus(name + ' (' + info.variant + ') ready on ' + info.backend.toUpperCase(), { progress: 1 });
+  setStatus(name + ' (' + info.variant.replace(':', ' ') + ') ready on ' + info.backend.toUpperCase(), { progress: 1 });
   setBadge(info.backend);
   if (task === state.task) $('stat-model').textContent = name + ' · ' + info.variant + ' · ' + info.backend;
 }
@@ -885,7 +886,7 @@ function wire() {
     resetCounts();
     render();
   });
-  for (const id of ['backend', 'precision']) {
+  for (const id of ['backend', 'precision', 'depth-size']) {
     $(id).addEventListener('change', () => {
       state.result = null;
       loaded.clear();

@@ -12,8 +12,12 @@ export const YOLO_KINDS = {
   classify: { kind: 'classify', size: 224, names: null, namesFile: 'imagenet-names.json', files: { n: 'yolo11n-cls.onnx', s: 'yolo11s-cls.onnx' } },
 };
 
-/** Model files live in /models next to /src; resolve against this module's own URL so no base needs passing in. */
-const modelUrl = (file) => new URL('../../models/' + file, import.meta.url).href;
+/** Model files live in /models next to /src by default; library users can point elsewhere (e.g. the hosted copy). */
+let MODEL_BASE = new URL('../../models/', import.meta.url).href;
+export function setModelBase(url) {
+  MODEL_BASE = url.endsWith('/') ? url : url + '/';
+}
+export const modelUrl = (file) => MODEL_BASE + file;
 
 /**
  * YOLO11 on ONNX Runtime Web (any Ultralytics export: detect / segment / pose / obb / classify).

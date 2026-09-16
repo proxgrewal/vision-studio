@@ -1,0 +1,23 @@
+{
+  "name": "vision-studio-web",
+  "version": "0.1.0",
+  "description": "YOLO11 detection / segmentation / pose / OBB / classification, YOLO-World open-vocabulary detection, Segment Anything, SegFormer and Depth Anything V2 — all in the browser on ONNX Runtime Web (WebGPU + multi-threaded WASM), inside a Web Worker.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./worker": "./src/worker.js",
+    "./src/*": "./src/*"
+  },
+  "files": ["src", "README.md", "LICENSE"],
+  "sideEffects": ["./src/worker.js"],
+  "keywords": ["yolo", "yolo11", "onnx", "onnxruntime-web", "webgpu", "object-detection", "segmentation", "pose", "depth-anything", "segment-anything", "yolo-world", "browser", "computer-vision"],
+  "repository": { "type": "git", "url": "https://github.com/proxgrewal/vision-studio.git" },
+  "homepage": "https://proxgrewal.github.io/vision-studio/",
+  "license": "AGPL-3.0-only",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "check": "node --check app.js && for f in src/*.js src/tasks/*.js; do node --check \"$f\" || exit 1; done && echo ok"
+  }
+}

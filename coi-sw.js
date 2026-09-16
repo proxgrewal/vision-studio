@@ -3,7 +3,7 @@
 //     SharedArrayBuffer and therefore multi-threaded WASM inference for users without WebGPU.
 //  2. Cache the app shell (HTML/JS/CSS/samples/CDN scripts) so the site works offline as a PWA.
 //     Model files are cached separately by the app via the Cache API.
-const SHELL = 'vision-shell-v1';
+const SHELL = 'vision-shell-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) =>
@@ -33,9 +33,10 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).then(isolate));
     return;
   }
-  // Network first (so deploys show up immediately), cache as fallback for offline use.
+  // Network first with revalidation (so deploys show up immediately), cache as fallback for offline use.
+  const sameOrigin = req.url.startsWith(location.origin);
   e.respondWith(
-    fetch(req)
+    fetch(sameOrigin ? new Request(req, { cache: 'no-cache' }) : req)
       .then((res) => {
         if (res.ok) caches.open(SHELL).then((c) => c.put(req, res.clone())).catch(() => {});
         return isolate(res);

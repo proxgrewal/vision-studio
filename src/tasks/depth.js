@@ -1,12 +1,8 @@
 import { resizeNormalize } from '../image.js';
 import { createSession, fetchModel, loadOrt } from '../runtime.js';
 
-const HF = 'https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/';
-const MODEL_FILES = {
-  fp16: HF + 'model_fp16.onnx',
-  fp32: HF + 'model.onnx',
-  int8: HF + 'model_quantized.onnx',
-};
+const HF = (size) => 'https://huggingface.co/onnx-community/depth-anything-v2-' + size + '/resolve/main/onnx/';
+const FILE = { fp16: 'model_fp16.onnx', fp32: 'model.onnx', int8: 'model_quantized.onnx' };
 const BASE = 518; // shorter side, multiple of 14 (DPT processor: keep_aspect_ratio, ensure_multiple_of=14)
 const MAX_LONG = 1036; // cap the longer side to keep inference time sane
 
@@ -19,15 +15,20 @@ export class DepthTask {
     this.variant = null;
   }
 
+  /** variant = "[small|base]:[auto|fp16|fp32|int8]" (either part may be omitted). */
   pickVariant(backend, variant) {
-    if (variant && variant !== 'auto') return variant;
-    return backend === 'webgpu' ? 'fp16' : 'int8';
+    const [a, b] = String(variant || 'auto').split(':');
+    const size = ['small', 'base'].includes(a) ? a : 'small';
+    let precision = ['small', 'base'].includes(a) ? b : a;
+    if (!precision || precision === 'auto') precision = backend === 'webgpu' ? 'fp16' : 'int8';
+    return size + ':' + precision;
   }
 
   async load(backend, variant, onProgress) {
     const v = this.pickVariant(backend, variant);
     if (this.session && this.variant === v && this.requested === backend) return;
-    const buffer = await fetchModel(MODEL_FILES[v], onProgress);
+    const [size, precision] = v.split(':');
+    const buffer = await fetchModel(HF(size) + FILE[precision], onProgress);
     const { session, backend: used } = await createSession(buffer, backend);
     this.session = session;
     this.backend = used;

@@ -57,7 +57,7 @@
       ['detect', 'n', 'YOLO11n detect'], ['detect', 's', 'YOLO11s detect'], ['detect', 'm', 'YOLO11m detect'],
       ['segment', 'n', 'YOLO11n-seg'], ['segment', 's', 'YOLO11s-seg'],
       ['pose', 'n', 'YOLO11n-pose'], ['obb', 'n', 'YOLO11n-obb (1024)'], ['classify', 'n', 'YOLO11n-cls'],
-      ['semantic', 'auto', 'SegFormer-B0'], ['depth', 'auto', 'Depth Anything V2 S'],
+      ['world', 's', 'YOLO-World v2 S'], ['semantic', 'auto', 'SegFormer-B0'], ['depth', 'small:auto', 'Depth Anything V2 S'], ['depth', 'base:auto', 'Depth Anything V2 B'], ['sam', 'auto', 'SlimSAM encoder'],
     ];
     const engine = new Engine();
     const detected = await engine.init();

@@ -1,6 +1,6 @@
 // Inference worker: owns ONNX Runtime and every model session so the UI thread never blocks.
 import { clearModelCache, detectBackend } from './runtime.js';
-import { YOLO_KINDS, YoloTask, customYoloTask } from './tasks/yolo.js';
+import { YOLO_KINDS, YoloTask, customYoloTask, setModelBase } from './tasks/yolo.js';
 import { DepthTask } from './tasks/depth.js';
 import { SemanticTask } from './tasks/semantic.js';
 import { SamTask } from './tasks/sam.js';
@@ -30,6 +30,7 @@ self.onmessage = async (e) => {
   const reply = (msg, transfer = []) => self.postMessage({ id, ...msg }, transfer);
   try {
     if (type === 'init') {
+      if (e.data.modelBase) setModelBase(e.data.modelBase);
       reply({ type: 'ready', backend: await detectBackend() });
     } else if (type === 'load') {
       const { task, backend, variant } = e.data;

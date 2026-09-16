@@ -1,7 +1,14 @@
 // Promise-based client for the inference worker.
 export class Engine {
-  constructor() {
-    this.worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.modelBase]  where the YOLO .onnx files live (default: ../models/ next to this package;
+   *                                   use 'https://proxgrewal.github.io/vision-studio/models/' from other sites)
+   * @param {Worker}  [opts.worker]     bring your own worker instance (bundler setups)
+   */
+  constructor(opts = {}) {
+    this.modelBase = opts.modelBase || null;
+    this.worker = opts.worker || new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
     this.pending = new Map();
     this.seq = 0;
     this.worker.onmessage = (e) => {
@@ -32,7 +39,13 @@ export class Engine {
 
   /** Resolves with the auto-detected backend ('webgpu' | 'wasm'). */
   init() {
-    return this.call({ type: 'init' }).then((r) => r.backend);
+    return this.call({ type: 'init', modelBase: this.modelBase }).then((r) => r.backend);
+  }
+
+  /** Release the worker and every model session. */
+  dispose() {
+    this.worker.terminate();
+    this.pending.clear();
   }
 
   load(task, backend, variant, onProgress) {

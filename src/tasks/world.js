@@ -1,8 +1,7 @@
-import { YoloTask } from './yolo.js';
+import { YoloTask, modelUrl } from './yolo.js';
 import { createSession, fetchModel, loadOrt } from '../runtime.js';
 
 const MAX_CLASSES = 32; // the exported head has 32 class slots; unused slots get zero embeddings
-const modelUrl = (file) => new URL('../../models/' + file, import.meta.url).href;
 const CLIP_HF = 'https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/';
 const CLIP_TEXT = { q4f16: CLIP_HF + 'onnx/text_model_q4f16.onnx', fp16: CLIP_HF + 'onnx/text_model_fp16.onnx' };
 const TRANSFORMERS_JS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js';
