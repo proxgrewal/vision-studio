@@ -227,9 +227,16 @@
         <div class="stage-tools">
           <button id="btn-compare" class="tool" title="Hold to see the original">Original</button>
           <button id="btn-grid" class="tool" title="Run every model on this image">All tasks</button>
+          <button id="btn-edit" class="tool" title="Move, resize, add or delete boxes, then export corrected labels">Edit boxes</button>
           <button id="btn-download" class="tool" title="Download result">Download</button>
         </div>
         <div id="counter" class="counter" hidden></div>
+        <div id="editor-bar" class="editor-bar" hidden>
+          <span>Drag a box to move · handles resize · drag on empty space to add · <kbd>Del</kbd> removes</span>
+          <select id="editor-class" title="Class of the selected / next box"></select>
+          <button id="editor-delete" class="tool">Delete</button>
+          <button id="editor-done" class="tool">Done</button>
+        </div>
       </div>
       <div class="stats" id="stats">
         <span><b id="stat-infer">–</b> ms inference</span>

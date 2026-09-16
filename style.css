@@ -144,6 +144,11 @@ select { font: inherit; background: var(--bg-2); color: var(--text); border: 1px
 .stage.dragover { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .stage-tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
 .stage.drawline { cursor: crosshair; }
+.editor-bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: rgba(10,11,16,.82); color: #dfe3ee; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; backdrop-filter: blur(8px); }
+.editor-bar select { padding: 4px 8px; font-size: 12.5px; max-width: 180px; }
+.editor-bar kbd { background: #2a2e40; padding: 1px 5px; border-radius: 4px; font-family: var(--mono); }
+.editor-bar button { margin-left: auto; }
+.editor-bar button + button { margin-left: 0; }
 .counter { position: absolute; left: 12px; top: 12px; background: rgba(10,11,16,.78); color: #fff; border-radius: 10px; padding: 8px 12px; font-family: var(--mono); font-size: 13px; line-height: 1.5; backdrop-filter: blur(8px); }
 .counter b { color: var(--accent); }
 .grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
@@ -155,6 +160,7 @@ select { font: inherit; background: var(--bg-2); color: var(--text); border: 1px
 .tool { border: 1px solid rgba(255,255,255,.12); background: rgba(10,11,16,.72); backdrop-filter: blur(8px); color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; }
 .tool:hover { background: rgba(30,32,45,.9); }
 .tool:disabled { opacity: .4; }
+.tool.on { background: var(--accent); color: #062a24; border-color: transparent; }
 
 .stats { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--muted); font-family: var(--mono); padding: 0 4px; }
 .stats b { color: var(--text); font-weight: 600; }

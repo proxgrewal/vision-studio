@@ -3,6 +3,7 @@ import { COCO_CLASSES, DOTA_CLASSES, rgbCss } from './src/labels.js';
 import { RENDERERS } from './src/render.js';
 import { canvasBlob, depthPng16, downloadBlob, labelMapPng, masksZip, samMasksZip, toCoco, toYoloTxt } from './src/export.js';
 import { ZipWriter } from './src/zip.js';
+import { BoxEditor } from './src/editor.js';
 
 const TASKS = {
   detect: { name: 'YOLO11 detect', desc: 'YOLO11 object detection — 80 COCO classes with bounding boxes.', sizes: ['n', 's', 'm'] },
@@ -164,6 +165,45 @@ function render() {
   const r = state.result;
   if (r && r.task === state.task && RENDERERS[r.kind]) RENDERERS[r.kind].draw(ctx, r, d.w, d.h, settings());
   drawCountLine();
+  editor.draw(ctx);
+}
+
+function currentLabels() {
+  if (state.task === 'custom') return state.custom.names;
+  if (state.task === 'world') return [...new Set([...(state.result?.detections || []).map((x) => x.name), ...$('world-prompts').value.split(/[,\n]/).map((p) => p.trim()).filter(Boolean)])];
+  if (state.task === 'obb') return DOTA_CLASSES;
+  if (state.task === 'pose') return ['person'];
+  return COCO_CLASSES;
+}
+
+const editor = new BoxEditor({
+  canvas,
+  result: () => state.result,
+  render: () => render(),
+  onChange: () => {
+    if (state.result) updateResults(state.result);
+    syncEditorClass();
+  },
+  labels: currentLabels,
+});
+
+function syncEditorClass() {
+  const sel = $('editor-class');
+  const labels = currentLabels();
+  if (sel.options.length !== labels.length || sel.options[0]?.textContent !== labels[0]) {
+    sel.replaceChildren(...labels.map((l, i) => Object.assign(document.createElement('option'), { value: i, textContent: l })));
+  }
+  const d = editor.boxes()[editor.selected];
+  if (d) sel.value = d.cls;
+}
+
+function toggleEditor(on) {
+  const canEdit = on && state.result?.detections && BOX_KINDS.has(state.result.kind) && !isMoving();
+  if (on && !canEdit) return setStatus('Editing needs a detection result on a still image', { error: true });
+  editor.enable(canEdit);
+  $('editor-bar').hidden = !canEdit;
+  $('btn-edit').classList.toggle('on', canEdit);
+  if (canEdit) syncEditorClass();
 }
 
 function renderOriginal() {
@@ -187,6 +227,7 @@ function drawCountLine() {
 
 /* ---------- inference ---------- */
 async function infer() {
+  if (editor.active) return; // keep manual edits until the user leaves edit mode
   if (state.busy) {
     state.rerun = true;
     return;
@@ -345,6 +386,7 @@ function showCanvas(show) {
 }
 
 function newSource(source) {
+  if (editor.active) toggleEditor(false);
   stopStream();
   stopVideo();
   state.source = source;
@@ -612,6 +654,7 @@ async function samDecode() {
 /* ---------- task switching ---------- */
 function setTask(task) {
   if (task === 'custom' && !state.custom) return;
+  if (editor.active) toggleEditor(false);
   state.task = task;
   document.querySelectorAll('#task-tabs button').forEach((b) => {
     const on = b.dataset.task === task;
@@ -918,6 +961,11 @@ function wire() {
   });
   $('btn-download').addEventListener('click', () => doExport('png'));
   $('btn-grid').addEventListener('click', () => (state.gridMode ? exitGrid() : runGrid()));
+  $('btn-edit').addEventListener('click', () => toggleEditor(!editor.active));
+  $('editor-done').addEventListener('click', () => toggleEditor(false));
+  $('editor-delete').addEventListener('click', () => editor.deleteSelected());
+  $('editor-class').addEventListener('change', (e) => editor.setClass(Number(e.target.value)));
+  canvas.addEventListener('pointerup', () => editor.active && syncEditorClass());
   $('btn-3d').addEventListener('click', async () => {
     if (!state.result?.raw) return setStatus('Run depth first', { error: true });
     const { openPointCloud } = await import('./src/pointcloud.js');
@@ -999,7 +1047,7 @@ function wire() {
 
   // Count-line drawing on the canvas.
   canvas.addEventListener('pointerdown', (e) => {
-    if (!settings().countLine || state.task === 'sam') return;
+    if (!settings().countLine || state.task === 'sam' || editor.active) return;
     const p = canvasPoint(e);
     state.drawingLine = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     try {
