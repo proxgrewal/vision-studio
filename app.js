@@ -29,8 +29,12 @@ const SAMPLES = [
   { file: 'samples/river.jpg', alt: 'River under a bridge' },
 ];
 
-/** Community Ultralytics exports loadable straight from the Hub (must carry ONNX metadata). */
-const MODEL_ZOO = [];
+/** Community fine-tunes re-exported to ONNX (see README for sources and licenses). */
+const MODEL_ZOO = [
+  { name: 'Face detection (YOLOv8n, arnabdhar)', url: 'models/zoo/face.onnx' },
+  { name: 'Fire & smoke (YOLOv8n, rabahdev)', url: 'models/zoo/fire-smoke.onnx' },
+  { name: 'License plates (YOLO11n, Pikurrot)', url: 'models/zoo/license-plates.onnx' },
+];
 
 const engine = new Engine();
 
@@ -948,7 +952,7 @@ function wire() {
   const zoo = $('zoo-select');
   for (const m of MODEL_ZOO) zoo.append(Object.assign(document.createElement('option'), { value: m.url, textContent: m.name }));
   zoo.parentElement.hidden = MODEL_ZOO.length === 0;
-  zoo.addEventListener('change', () => zoo.value && loadCustomFromUrl(zoo.value));
+  zoo.addEventListener('change', () => zoo.value && loadCustomFromUrl(new URL(zoo.value, document.baseURI).href));
 
   // Exports & tools.
   $('export-buttons').addEventListener('click', (e) => {

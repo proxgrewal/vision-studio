@@ -99,6 +99,14 @@ yolo export model=yolo11n-seg.pt ...  yolo11n-pose.pt ...  yolo11n-cls.pt imgsz=
 
 YOLO-World is exported with a small wrapper so the CLIP text embeddings become a runtime input (`txt_feats`, 32 slots) instead of being baked in; the vocabulary table in `models/world-vocab.bin` holds fp16 CLIP embeddings for COCO + LVIS + Objects365 + Open Images class names. Custom models work as long as they are standard Ultralytics exports (`nms=False`) — the class names, task and image size are read from the ONNX `metadata_props`.
 
+### Model zoo
+
+`models/zoo/` holds community fine-tunes re-exported to ONNX with Ultralytics, selectable under *Custom model → Model zoo*:
+[arnabdhar/YOLOv8-Face-Detection](https://huggingface.co/arnabdhar/YOLOv8-Face-Detection) (AGPL-3.0),
+[rabahdev/fire-smoke-yolov8n](https://huggingface.co/rabahdev/fire-smoke-yolov8n) (AGPL-3.0),
+[Pikurrot/yolo11n-licenseplates](https://huggingface.co/Pikurrot/yolo11n-licenseplates) (MIT).
+Any other Ultralytics export can be loaded from a file, a CORS-enabled URL, or `?model=<url>`.
+
 ## License
 
 Code is released under **AGPL-3.0** (see `LICENSE`), matching the bundled [Ultralytics YOLO11 / YOLO-World](https://github.com/ultralytics/ultralytics) weights. Depth Anything V2 Small is Apache-2.0; SlimSAM and CLIP are Apache-2.0 / MIT; SegFormer is under the NVIDIA Source Code License (non-commercial research use). Sample images: Ultralytics assets and COCO val2017.
